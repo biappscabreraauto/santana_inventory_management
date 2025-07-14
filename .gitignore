@@ -1,3 +1,183 @@
-config.js
-*.csv
+# =================================================================
+# SANTANA INVENTORY - GIT IGNORE RULES
+# =================================================================
+
+# Environment Variables (Security Critical)
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 .env
+config.js
+
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Production Build
+/dist
+/build
+
+# Development
+.vite/
+*.local
+
+# Editor and IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Runtime Data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage Directory Used by Tools
+coverage/
+*.lcov
+
+# nyc Test Coverage
+.nyc_output
+
+# ESLint Cache
+.eslintcache
+
+# Microbundle Cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional npm Cache Directory
+.npm
+
+# Optional eslint Cache
+.eslintcache
+
+# Optional stylelint Cache
+.stylelintcache
+
+# Microbundle Cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL History
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity File
+.yarn-integrity
+
+# dotenv Environment Variable Files
+.env
+.env.development.local
+.env.test.local
+.env.production.local
+.env.local
+
+# Parcel-bundler Cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# Next.js Build Output
+.next
+out
+
+# Nuxt.js Build / Generate Output
+.nuxt
+dist
+
+# Gatsby Files
+.cache/
+public
+
+# Storybook Build Outputs
+.out
+.storybook-out
+storybook-static
+
+# Temporary Folders
+tmp/
+temp/
+
+# Azure Static Web Apps
+.azure/
+
+# Local History for Visual Studio Code
+.history/
+
+# Local netlify folder
+.netlify
+
+# Backup Files
+*.backup
+*.bak
+
+# Database Files (if any local testing)
+*.db
+*.sqlite
+*.sqlite3
+
+# Excel/CSV Files (unless part of seed data)
+*.xlsx
+*.xls
+*.csv
+
+# Archive Files
+*.zip
+*.tar.gz
+*.rar
+
+# Documentation Build
+docs/_build/
+
+# Pytest
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# =================================================================
+# PROJECT SPECIFIC EXCLUDES
+# =================================================================
+
+# Old Implementation (keep until migration is complete)
+index.html.backup
+config.js.backup
+
+# SharePoint Authentication Tokens (if cached locally)
+msal-cache/
+auth-tokens/
+
+# Development Notes
+NOTES.md
+TODO.md
+*.notes
