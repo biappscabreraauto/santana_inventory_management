@@ -4,7 +4,7 @@
 // This service handles all SharePoint operations using Microsoft Graph API
 // It integrates with MSAL for authentication and provides clean CRUD operations
 
-import { Client } from '@microsoft/microsoft-graph-client'
+import { Client } from '@microsoft/microsoft-graph-client';
 
 // =================================================================
 // CONFIGURATION
@@ -17,9 +17,9 @@ const SHAREPOINT_CONFIG = {
     categories: import.meta.env.VITE_CATEGORIES_LIST_NAME,
     buyers: import.meta.env.VITE_BUYERS_LIST_NAME,
     invoices: import.meta.env.VITE_INVOICES_LIST_NAME,
-    transactions: import.meta.env.VITE_TRANSACTIONS_LIST_NAME
-  }
-}
+    transactions: import.meta.env.VITE_TRANSACTIONS_LIST_NAME,
+  },
+};
 
 // =================================================================
 // UTILITY FUNCTIONS
@@ -28,19 +28,26 @@ const SHAREPOINT_CONFIG = {
 /**
  * Extract site identifier from SharePoint URL for Graph API
  * Converts: https://cabreraautopr.sharepoint.com/sites/DataCollectionSystem
- * To: cabreraautopr.sharepoint.com:/sites/DataCollectionSystem
+ * To: cabreraautopr.sharepoint.com,7e2124f9-e554-4d2a-9e16-d4da5a00f314,ddb94a9e-35b4-41b2-b94c-9a8bc90c5098
  */
 const getSiteId = () => {
-  try {
-    const url = new URL(SHAREPOINT_CONFIG.siteUrl)
-    const hostname = url.hostname
-    const pathname = url.pathname
-    return `${hostname}:${pathname}`
-  } catch (error) {
-    console.error('❌ Invalid SharePoint URL:', error)
-    throw new Error('Invalid SharePoint site URL configuration')
+  // Using the hardcoded site ID is the most reliable method
+  const SITE_ID =
+    'cabreraautopr.sharepoint.com,7e2124f9-e554-4d2a-9e16-d4da5a00f314,ddb94a9e-35b4-41b2-b94c-9a8bc90c5098';
+  if (SITE_ID) {
+    return SITE_ID;
   }
-}
+  // Fallback for path-based, though less reliable
+  try {
+    const url = new URL(SHAREPOINT_CONFIG.siteUrl);
+    const hostname = url.hostname;
+    const pathname = url.pathname;
+    return `${hostname}:${pathname}`;
+  } catch (error) {
+    console.error('❌ Invalid SharePoint URL:', error);
+    throw new Error('Invalid SharePoint site URL configuration');
+  }
+};
 
 /**
  * Create authenticated Graph client
@@ -49,15 +56,15 @@ const getSiteId = () => {
  */
 const createGraphClient = (accessToken) => {
   if (!accessToken) {
-    throw new Error('Access token is required for SharePoint operations')
+    throw new Error('Access token is required for SharePoint operations');
   }
 
   return Client.init({
     authProvider: (done) => {
-      done(null, accessToken)
-    }
-  })
-}
+      done(null, accessToken);
+    },
+  });
+};
 
 /**
  * Transform SharePoint list item to clean object
@@ -66,18 +73,18 @@ const createGraphClient = (accessToken) => {
  * @returns {Object} Clean object for components
  */
 const transformSharePointItem = (sharePointItem, listType) => {
-  if (!sharePointItem) return null
+  if (!sharePointItem) return null;
 
   const baseItem = {
     id: sharePointItem.id,
     created: sharePointItem.createdDateTime,
     modified: sharePointItem.lastModifiedDateTime,
     createdBy: sharePointItem.createdBy?.user?.displayName || 'Unknown',
-    modifiedBy: sharePointItem.lastModifiedBy?.user?.displayName || 'Unknown'
-  }
+    modifiedBy: sharePointItem.lastModifiedBy?.user?.displayName || 'Unknown',
+  };
 
   // SharePoint fields are now directly on the item object, not nested in 'fields'
-  const fields = sharePointItem.fields || sharePointItem
+  const fields = sharePointItem.fields || sharePointItem;
 
   switch (listType) {
     case 'parts':
@@ -89,23 +96,23 @@ const transformSharePointItem = (sharePointItem, listType) => {
         inventoryOnHand: fields.InventoryOnHand || 0,
         unitCost: fields.UnitCost || 0,
         unitPrice: fields.UnitPrice || 0,
-        status: fields.Status || 'Active'
-      }
+        status: fields.Status || 'Active',
+      };
 
     case 'categories':
       return {
         ...baseItem,
         category: fields.Title,
-        family: fields.Family || ''
-      }
+        family: fields.Family || '',
+      };
 
     case 'buyers':
       return {
         ...baseItem,
         buyerName: fields.Title,
         contactEmail: fields.ContactEmail || '',
-        phone: fields.Phone || ''
-      }
+        phone: fields.Phone || '',
+      };
 
     case 'transactions':
       return {
@@ -116,8 +123,8 @@ const transformSharePointItem = (sharePointItem, listType) => {
         unitCost: fields.UnitCost || 0,
         unitPrice: fields.UnitPrice || 0,
         invoice: fields.Invoice?.LookupValue || fields.Invoice,
-        notes: fields.Notes || ''
-      }
+        notes: fields.Notes || '',
+      };
 
     case 'invoices':
       return {
@@ -126,13 +133,13 @@ const transformSharePointItem = (sharePointItem, listType) => {
         buyer: fields.Buyer?.LookupValue || fields.Buyer,
         invoiceDate: fields.InvoiceDate,
         totalAmount: fields.TotalAmount || 0,
-        status: fields.Status || 'Draft'
-      }
+        status: fields.Status || 'Draft',
+      };
 
     default:
-      return { ...baseItem, ...fields }
+      return { ...baseItem, ...fields };
   }
-}
+};
 
 /**
  * Transform component data to SharePoint format
@@ -150,21 +157,21 @@ const transformToSharePoint = (data, listType) => {
         InventoryOnHand: data.inventoryOnHand,
         UnitCost: data.unitCost,
         UnitPrice: data.unitPrice,
-        Status: data.status
-      }
+        Status: data.status,
+      };
 
     case 'categories':
       return {
         Title: data.category,
-        Family: data.family
-      }
+        Family: data.family,
+      };
 
     case 'buyers':
       return {
         Title: data.buyerName,
         ContactEmail: data.contactEmail,
-        Phone: data.phone
-      }
+        Phone: data.phone,
+      };
 
     case 'transactions':
       return {
@@ -174,8 +181,8 @@ const transformToSharePoint = (data, listType) => {
         UnitCost: data.unitCost,
         UnitPrice: data.unitPrice,
         Invoice: data.invoice, // Will be handled as lookup
-        Notes: data.notes
-      }
+        Notes: data.notes,
+      };
 
     case 'invoices':
       return {
@@ -183,22 +190,22 @@ const transformToSharePoint = (data, listType) => {
         Buyer: data.buyer, // Will be handled as lookup
         InvoiceDate: data.invoiceDate,
         TotalAmount: data.totalAmount,
-        Status: data.status
-      }
+        Status: data.status,
+      };
 
     default:
-      return data
+      return data;
   }
-}
+};
 
 // =================================================================
 // SHAREPOINT SERVICE CLASS
 // =================================================================
 class SharePointService {
   constructor() {
-    this.siteId = getSiteId()
-    this.cache = new Map()
-    this.cacheTimeout = 5 * 60 * 1000 // 5 minutes
+    this.siteId = getSiteId();
+    this.cache = new Map();
+    this.cacheTimeout = 5 * 60 * 1000; // 5 minutes
   }
 
   /**
@@ -207,12 +214,12 @@ class SharePointService {
    * @returns {any|null} Cached data or null
    */
   getFromCache(key) {
-    const cached = this.cache.get(key)
+    const cached = this.cache.get(key);
     if (cached && Date.now() - cached.timestamp < this.cacheTimeout) {
-      return cached.data
+      return cached.data;
     }
-    this.cache.delete(key)
-    return null
+    this.cache.delete(key);
+    return null;
   }
 
   /**
@@ -223,8 +230,8 @@ class SharePointService {
   setCache(key, data) {
     this.cache.set(key, {
       data,
-      timestamp: Date.now()
-    })
+      timestamp: Date.now(),
+    });
   }
 
   /**
@@ -233,9 +240,9 @@ class SharePointService {
    */
   clearCache(key = null) {
     if (key) {
-      this.cache.delete(key)
+      this.cache.delete(key);
     } else {
-      this.cache.clear()
+      this.cache.clear();
     }
   }
 
@@ -248,29 +255,35 @@ class SharePointService {
    */
   async executeGraphRequest(graphClient, operation, operationName) {
     try {
-      const result = await operation()
-      
+      const result = await operation();
+
       if (import.meta.env.VITE_ENABLE_LOGGING === 'true') {
-        console.log(`✅ ${operationName} successful`)
+        console.log(`✅ ${operationName} successful`);
       }
-      
-      return result
+
+      return result;
     } catch (error) {
-      console.error(`❌ ${operationName} failed:`, error)
-      
+      console.error(`❌ ${operationName} failed:`, error);
+
       // Handle specific Graph API errors
-      if (error.status === 401) {
-        throw new Error('Authentication failed. Please sign in again.')
-      } else if (error.status === 403) {
-        throw new Error('Access denied. You may not have permission to perform this operation.')
-      } else if (error.status === 404) {
-        throw new Error('Resource not found. The SharePoint list or item may not exist.')
-      } else if (error.status === 429) {
-        throw new Error('Too many requests. Please wait a moment and try again.')
-      } else if (error.status >= 500) {
-        throw new Error('Server error. Please try again later.')
+      if (error.statusCode === 401) {
+        throw new Error('Authentication failed. Please sign in again.');
+      } else if (error.statusCode === 403) {
+        throw new Error(
+          'Access denied. You may not have permission to perform this operation.'
+        );
+      } else if (error.statusCode === 404) {
+        throw new Error(
+          'Resource not found. The SharePoint list or item may not exist.'
+        );
+      } else if (error.statusCode === 429) {
+        throw new Error(
+          'Too many requests. Please wait a moment and try again.'
+        );
+      } else if (error.statusCode >= 500) {
+        throw new Error('Server error. Please try again later.');
       } else {
-        throw new Error(`Operation failed: ${error.message || 'Unknown error'}`)
+        throw new Error(`Operation failed: ${error.message || 'Unknown error'}`);
       }
     }
   }
@@ -286,42 +299,44 @@ class SharePointService {
    * @returns {Promise<Array>} Array of parts
    */
   async getParts(accessToken, options = {}) {
-    const cacheKey = `parts_${JSON.stringify(options)}`
-    const cached = this.getFromCache(cacheKey)
-    if (cached) return cached
+    const cacheKey = `parts_${JSON.stringify(options)}`;
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
 
-    const graphClient = createGraphClient(accessToken)
-    
+    const graphClient = createGraphClient(accessToken);
+
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        let query = graphClient
-          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
-          // Remove the problematic $expand=fields - SharePoint list items include fields by default
+        let query = graphClient.api(
+          `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items?$expand=fields`
+        );
 
         // Apply filters if provided
         if (options.filter) {
-          query = query.filter(options.filter)
+          query = query.filter(options.filter);
         }
 
         // Apply ordering if provided
         if (options.orderBy) {
-          query = query.orderby(options.orderBy)
+          query = query.orderby(options.orderBy);
         }
 
         // Apply top/limit if provided
         if (options.top) {
-          query = query.top(options.top)
+          query = query.top(options.top);
         }
 
-        const response = await query.get()
-        return response.value.map(item => transformSharePointItem(item, 'parts'))
+        const response = await query.get();
+        return response.value.map((item) =>
+          transformSharePointItem(item, 'parts')
+        );
       },
       'Get Parts'
-    )
+    );
 
-    this.setCache(cacheKey, result)
-    return result
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   /**
@@ -331,27 +346,28 @@ class SharePointService {
    * @returns {Promise<Object|null>} Part object or null if not found
    */
   async getPartById(accessToken, partId) {
-    const cacheKey = `part_${partId}`
-    const cached = this.getFromCache(cacheKey)
-    if (cached) return cached
+    const cacheKey = `part_${partId}`;
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
 
-    const graphClient = createGraphClient(accessToken)
-    
+    const graphClient = createGraphClient(accessToken);
+
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
         const response = await graphClient
-          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${partId}`)
-          // Remove $expand=fields
-          .get()
-        
-        return transformSharePointItem(response, 'parts')
+          .api(
+            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${partId}?$expand=fields`
+          )
+          .get();
+
+        return transformSharePointItem(response, 'parts');
       },
       `Get Part ${partId}`
-    )
+    );
 
-    this.setCache(cacheKey, result)
-    return result
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   /**
@@ -361,27 +377,29 @@ class SharePointService {
    * @returns {Promise<Object>} Created part object
    */
   async createPart(accessToken, partData) {
-    const graphClient = createGraphClient(accessToken)
-    
+    const graphClient = createGraphClient(accessToken);
+
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        const sharePointData = transformToSharePoint(partData, 'parts')
-        
+        const sharePointData = transformToSharePoint(partData, 'parts');
+
         const response = await graphClient
-          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
+          .api(
+            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`
+          )
           .post({
-            fields: sharePointData
-          })
-        
-        return transformSharePointItem(response, 'parts')
+            fields: sharePointData,
+          });
+
+        return transformSharePointItem(response, 'parts');
       },
       'Create Part'
-    )
+    );
 
     // Clear parts cache since we added a new item
-    this.clearCache()
-    return result
+    this.clearCache();
+    return result;
   }
 
   /**
@@ -392,28 +410,30 @@ class SharePointService {
    * @returns {Promise<Object>} Updated part object
    */
   async updatePart(accessToken, partId, partData) {
-    const graphClient = createGraphClient(accessToken)
-    
+    const graphClient = createGraphClient(accessToken);
+
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        const sharePointData = transformToSharePoint(partData, 'parts')
-        
+        const sharePointData = transformToSharePoint(partData, 'parts');
+
         const response = await graphClient
-          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${partId}`)
+          .api(
+            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${partId}`
+          )
           .patch({
-            fields: sharePointData
-          })
-        
-        return transformSharePointItem(response, 'parts')
+            fields: sharePointData,
+          });
+
+        return transformSharePointItem(response, 'parts');
       },
       `Update Part ${partId}`
-    )
+    );
 
     // Clear relevant cache
-    this.clearCache(`part_${partId}`)
-    this.clearCache() // Clear all parts cache
-    return result
+    this.clearCache(`part_${partId}`);
+    this.clearCache(); // Clear all parts cache
+    return result;
   }
 
   /**
@@ -423,22 +443,24 @@ class SharePointService {
    * @returns {Promise<boolean>} Success status
    */
   async deletePart(accessToken, partId) {
-    const graphClient = createGraphClient(accessToken)
-    
+    const graphClient = createGraphClient(accessToken);
+
     await this.executeGraphRequest(
       graphClient,
       async () => {
         await graphClient
-          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${partId}`)
-          .delete()
+          .api(
+            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${partId}`
+          )
+          .delete();
       },
       `Delete Part ${partId}`
-    )
+    );
 
     // Clear relevant cache
-    this.clearCache(`part_${partId}`)
-    this.clearCache() // Clear all parts cache
-    return true
+    this.clearCache(`part_${partId}`);
+    this.clearCache(); // Clear all parts cache
+    return true;
   }
 
   /**
@@ -448,21 +470,21 @@ class SharePointService {
    * @returns {Promise<Object>} Results object with success/failure counts
    */
   async deleteMultipleParts(accessToken, partIds) {
-    const results = { succeeded: 0, failed: 0, errors: [] }
-    
+    const results = { succeeded: 0, failed: 0, errors: [] };
+
     // Process deletions in parallel with error handling
     const deletePromises = partIds.map(async (partId) => {
       try {
-        await this.deletePart(accessToken, partId)
-        results.succeeded++
+        await this.deletePart(accessToken, partId);
+        results.succeeded++;
       } catch (error) {
-        results.failed++
-        results.errors.push({ partId, error: error.message })
+        results.failed++;
+        results.errors.push({ partId, error: error.message });
       }
-    })
+    });
 
-    await Promise.all(deletePromises)
-    return results
+    await Promise.all(deletePromises);
+    return results;
   }
 
   // =================================================================
@@ -475,29 +497,32 @@ class SharePointService {
    * @returns {Promise<Array>} Array of categories
    */
   async getCategories(accessToken) {
-    const cacheKey = 'categories'
-    const cached = this.getFromCache(cacheKey)
-    if (cached) return cached
+    const cacheKey = 'categories';
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
 
-    const graphClient = createGraphClient(accessToken)
-    
+    const graphClient = createGraphClient(accessToken);
+
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
         const response = await graphClient
-          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.categories}/items`)
-          // Remove $expand=fields
+          .api(
+            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.categories}/items?$expand=fields`
+          )
           .orderby('fields/Title')
-          .get()
-        
-        return response.value.map(item => transformSharePointItem(item, 'categories'))
+          .get();
+
+        return response.value.map((item) =>
+          transformSharePointItem(item, 'categories')
+        );
       },
       'Get Categories'
-    )
+    );
 
     // Cache categories longer since they change less frequently
-    this.setCache(cacheKey, result)
-    return result
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   /**
@@ -506,8 +531,8 @@ class SharePointService {
    * @returns {Promise<Array<string>>} Array of category names
    */
   async getCategoryNames(accessToken) {
-    const categories = await this.getCategories(accessToken)
-    return categories.map(cat => cat.category)
+    const categories = await this.getCategories(accessToken);
+    return categories.map((cat) => cat.category);
   }
 
   // =================================================================
@@ -521,29 +546,32 @@ class SharePointService {
    * @returns {Promise<Array>} Array of transactions
    */
   async getPartTransactions(accessToken, partId) {
-    const cacheKey = `transactions_${partId}`
-    const cached = this.getFromCache(cacheKey)
-    if (cached) return cached
+    const cacheKey = `transactions_${partId}`;
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
 
-    const graphClient = createGraphClient(accessToken)
-    
+    const graphClient = createGraphClient(accessToken);
+
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
         const response = await graphClient
-          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.transactions}/items`)
-          // Remove $expand=fields
+          .api(
+            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.transactions}/items?$expand=fields`
+          )
           .filter(`fields/Part eq '${partId}'`)
           .orderby('fields/Created desc')
-          .get()
-        
-        return response.value.map(item => transformSharePointItem(item, 'transactions'))
+          .get();
+
+        return response.value.map((item) =>
+          transformSharePointItem(item, 'transactions')
+        );
       },
       `Get Transactions for Part ${partId}`
-    )
+    );
 
-    this.setCache(cacheKey, result)
-    return result
+    this.setCache(cacheKey, result);
+    return result;
   }
 
   // =================================================================
@@ -556,43 +584,43 @@ class SharePointService {
    * @returns {Promise<Object>} Health check results
    */
   async healthCheck(accessToken) {
-    const graphClient = createGraphClient(accessToken)
+    const graphClient = createGraphClient(accessToken);
     const results = {
       siteAccess: false,
       listsAccess: {},
-      timestamp: new Date().toISOString()
-    }
+      timestamp: new Date().toISOString(),
+    };
 
     try {
       // Test site access
-      await graphClient.api(`/sites/${this.siteId}`).get()
-      results.siteAccess = true
+      await graphClient.api(`/sites/${this.siteId}`).get();
+      results.siteAccess = true;
 
       // Test each list access
-      for (const [listKey, listName] of Object.entries(SHAREPOINT_CONFIG.lists)) {
+      for (const [listKey, listName] of Object.entries(
+        SHAREPOINT_CONFIG.lists
+      )) {
         try {
-          await graphClient
-            .api(`/sites/${this.siteId}/lists/${listName}`)
-            .get()
-          results.listsAccess[listKey] = true
+          await graphClient.api(`/sites/${this.siteId}/lists/${listName}`).get();
+          results.listsAccess[listKey] = true;
         } catch (error) {
-          results.listsAccess[listKey] = false
+          results.listsAccess[listKey] = false;
         }
       }
     } catch (error) {
-      console.error('❌ SharePoint health check failed:', error)
+      console.error('❌ SharePoint health check failed:', error);
     }
 
-    return results
+    return results;
   }
 }
 
 // =================================================================
 // SINGLETON INSTANCE
 // =================================================================
-const sharePointService = new SharePointService()
+const sharePointService = new SharePointService();
 
-export default sharePointService
+export default sharePointService;
 
 // =================================================================
 // CONVENIENCE EXPORTS
@@ -602,5 +630,5 @@ export {
   SHAREPOINT_CONFIG,
   getSiteId,
   transformSharePointItem,
-  transformToSharePoint
-}
+  transformToSharePoint,
+};
