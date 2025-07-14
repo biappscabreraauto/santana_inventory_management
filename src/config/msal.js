@@ -1,8 +1,6 @@
 // =================================================================
-// MSAL CONFIGURATION - Microsoft Authentication Library
+// FIXED MSAL CONFIGURATION - Updated getSiteId function
 // =================================================================
-// This file configures MSAL.js for authenticating with Azure AD
-// and accessing Microsoft Graph API for SharePoint integration
 
 import { LogLevel } from '@azure/msal-browser'
 
@@ -11,37 +9,21 @@ import { LogLevel } from '@azure/msal-browser'
 // =================================================================
 export const msalConfig = {
   auth: {
-    // Your Azure AD Application (client) ID
     clientId: import.meta.env.VITE_CLIENT_ID,
-    
-    // Authority URL for your tenant
     authority: `https://login.microsoftonline.com/${import.meta.env.VITE_TENANT_ID}`,
-    
-    // Redirect URI after login (should match your app URL)
     redirectUri: window.location.origin,
-    
-    // Post logout redirect URI
     postLogoutRedirectUri: window.location.origin,
-    
-    // Navigate to login request URL after logout
     navigateToLoginRequestUrl: false,
   },
   cache: {
-    // Use sessionStorage for better security in shared environments
     cacheLocation: 'sessionStorage',
-    
-    // Store auth state in cookies for IE11 compatibility (if needed)
     storeAuthStateInCookie: false,
   },
   system: {
-    // Logging configuration
     loggerOptions: {
       loggerCallback: (level, message, containsPii) => {
-        if (containsPii) {
-          return
-        }
+        if (containsPii) return
         
-        // Only log in development mode
         if (import.meta.env.VITE_DEBUG_MODE === 'true') {
           switch (level) {
             case LogLevel.Error:
@@ -64,8 +46,6 @@ export const msalConfig = {
       piiLoggingEnabled: false,
       logLevel: import.meta.env.VITE_DEBUG_MODE === 'true' ? LogLevel.Verbose : LogLevel.Warning,
     },
-    
-    // Window options for popup login
     windowHashTimeout: 60000,
     iframeHashTimeout: 6000,
     loadFrameTimeout: 0,
@@ -77,10 +57,10 @@ export const msalConfig = {
 // =================================================================
 export const loginRequest = {
   scopes: [
-    'User.Read',           // Basic user profile information
-    'Sites.ReadWrite.All'  // Read/write access to SharePoint sites
+    'User.Read',
+    'Sites.ReadWrite.All'
   ],
-  prompt: 'select_account' // Allow user to select account if multiple exist
+  prompt: 'select_account'
 }
 
 // =================================================================
@@ -92,15 +72,24 @@ export const graphConfig = {
 }
 
 // =================================================================
-// HELPER FUNCTIONS
+// FIXED HELPER FUNCTIONS
 // =================================================================
 
 /**
- * Extract site ID from SharePoint URL for Graph API calls
- * Converts: https://cabreraautopr.sharepoint.com/sites/DataCollectionSystem
- * To: cabreraautopr.sharepoint.com,<site-id>,<web-id>
+ * Get the SharePoint site ID for Graph API calls
+ * FIXED: Now uses the actual site ID instead of path-based approach
  */
 function getSiteId() {
+  // Option 1: Use the exact site ID from your Graph API response
+  // This is the most reliable method
+  const SITE_ID = 'cabreraautopr.sharepoint.com,7e2124f9-e554-4d2a-9e16-d4da5a00f314,ddb94a9e-35b4-41b2-b94c-9a8bc90c5098'
+  
+  if (SITE_ID) {
+    console.log('✅ Using hardcoded site ID:', SITE_ID)
+    return SITE_ID
+  }
+  
+  // Option 2: Fallback to path-based (if hardcoded doesn't work)
   const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL
   if (!siteUrl) {
     console.error('VITE_SHAREPOINT_SITE_URL not configured')
@@ -112,8 +101,10 @@ function getSiteId() {
     const hostname = url.hostname
     const sitePath = url.pathname.replace('/sites/', '')
     
-    // Return in format expected by Graph API
-    return `${hostname}:/sites/${sitePath}`
+    // Try different formats that Graph API accepts
+    const pathFormat = `${hostname}:/sites/${sitePath}`
+    console.log('⚠️ Using path-based site ID:', pathFormat)
+    return pathFormat
   } catch (error) {
     console.error('Invalid SharePoint site URL:', error)
     return ''
@@ -121,62 +112,59 @@ function getSiteId() {
 }
 
 /**
- * Create a silent request for acquiring tokens
- * @param {string[]} scopes - Array of scopes to request
- * @returns {Object} Silent request configuration
+ * Alternative function to get site ID dynamically (for advanced usage)
+ * This would require an additional API call to resolve the site
  */
-export const createSilentRequest = (scopes = loginRequest.scopes) => ({
-  scopes,
-  account: null, // Will be set by the calling code with the current account
-  forceRefresh: false
-})
-
-/**
- * Create an interactive request for acquiring tokens via popup
- * @param {string[]} scopes - Array of scopes to request
- * @returns {Object} Interactive request configuration
- */
-export const createInteractiveRequest = (scopes = loginRequest.scopes) => ({
-  scopes,
-  prompt: 'consent' // Force consent for additional permissions if needed
-})
-
-// =================================================================
-// SCOPE DEFINITIONS
-// =================================================================
-export const SCOPES = {
-  // Basic user information
-  USER_READ: 'User.Read',
-  
-  // SharePoint permissions
-  SITES_READ_ALL: 'Sites.Read.All',
-  SITES_READWRITE_ALL: 'Sites.ReadWrite.All',
-  
-  // Graph API permissions for future use
-  MAIL_READ: 'Mail.Read',
-  CALENDARS_READ: 'Calendars.Read',
-  
-  // Offline access for refresh tokens
-  OFFLINE_ACCESS: 'offline_access'
+export async function resolveSiteId(graphClient) {
+  try {
+    const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL
+    if (!siteUrl) throw new Error('Site URL not configured')
+    
+    const url = new URL(siteUrl)
+    const hostname = url.hostname
+    const sitePath = url.pathname
+    
+    // Use Graph API to get the site by path
+    const response = await graphClient
+      .api(`/sites/${hostname}:${sitePath}`)
+      .get()
+    
+    console.log('✅ Dynamically resolved site ID:', response.id)
+    return response.id
+  } catch (error) {
+    console.error('❌ Failed to resolve site ID:', error)
+    return null
+  }
 }
 
 // =================================================================
-// ERROR HANDLING HELPERS
+// OTHER HELPER FUNCTIONS (unchanged)
 // =================================================================
 
-/**
- * Check if an error is a specific MSAL error type
- * @param {Error} error - The error to check
- * @param {string} errorType - The MSAL error type to check for
- * @returns {boolean} True if the error matches the type
- */
+export const createSilentRequest = (scopes = loginRequest.scopes) => ({
+  scopes,
+  account: null,
+  forceRefresh: false
+})
+
+export const createInteractiveRequest = (scopes = loginRequest.scopes) => ({
+  scopes,
+  prompt: 'consent'
+})
+
+export const SCOPES = {
+  USER_READ: 'User.Read',
+  SITES_READ_ALL: 'Sites.Read.All',
+  SITES_READWRITE_ALL: 'Sites.ReadWrite.All',
+  MAIL_READ: 'Mail.Read',
+  CALENDARS_READ: 'Calendars.Read',
+  OFFLINE_ACCESS: 'offline_access'
+}
+
 export const isMsalError = (error, errorType) => {
   return error?.errorCode === errorType || error?.name === errorType
 }
 
-/**
- * Common MSAL error codes for easier handling
- */
 export const MSAL_ERRORS = {
   USER_CANCELLED: 'user_cancelled',
   CONSENT_REQUIRED: 'consent_required',
