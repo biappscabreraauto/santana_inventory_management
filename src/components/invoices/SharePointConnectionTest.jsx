@@ -17,227 +17,211 @@ const SharePointConnectionTest = () => {
   // =================================================================
 
   /**
-   * Test 1: SharePoint Health Check - Tests actual connection
-   */
-  const runHealthCheck = async () => {
-    if (isRunning) return
-    
-    setCurrentTest('health')
-    setIsRunning(true)
-    
-    try {
-      const accessToken = await getAccessToken()
-      if (!accessToken) {
-        throw new Error('No access token available. Please sign in.')
+     * Test 1: SharePoint Health Check - Tests actual connection
+     */
+    const runHealthCheck = async () => {
+      setCurrentTest('health')
+      
+      try {
+        const accessToken = await getAccessToken()
+        if (!accessToken) {
+          throw new Error('No access token available. Please sign in.')
+        }
+
+        const result = await sharePointService.healthCheck(accessToken)
+        
+        setTestResults(prev => ({
+          ...prev,
+          health: {
+            success: result.siteAccess,
+            result,
+            timestamp: new Date().toISOString()
+          }
+        }))
+        
+      } catch (error) {
+        console.error('Health check failed:', error)
+        setTestResults(prev => ({
+          ...prev,
+          health: {
+            success: false,
+            error: error.message,
+            timestamp: new Date().toISOString()
+          }
+        }))
+      } finally {
+        setCurrentTest(null)
       }
-
-      const result = await sharePointService.healthCheck(accessToken)
-      
-      setTestResults(prev => ({
-        ...prev,
-        health: {
-          success: result.siteAccess,
-          result,
-          timestamp: new Date().toISOString()
-        }
-      }))
-      
-    } catch (error) {
-      console.error('Health check failed:', error)
-      setTestResults(prev => ({
-        ...prev,
-        health: {
-          success: false,
-          error: error.message,
-          timestamp: new Date().toISOString()
-        }
-      }))
-    } finally {
-      setCurrentTest(null)
-      setIsRunning(false)
     }
-  }
 
-  /**
-   * Test 2: Buyers Connection - Tests actual buyers list
-   */
-  const testBuyersConnection = async () => {
-    if (isRunning) return
-    
-    setCurrentTest('buyers')
-    setIsRunning(true)
-    
-    try {
-      const accessToken = await getAccessToken()
-      if (!accessToken) {
-        throw new Error('No access token available. Please sign in.')
+    /**
+     * Test 2: Buyers Connection - Tests actual buyers list
+     */
+    const testBuyersConnection = async () => {
+      setCurrentTest('buyers')
+      
+      try {
+        const accessToken = await getAccessToken()
+        if (!accessToken) {
+          throw new Error('No access token available. Please sign in.')
+        }
+
+        // Test getting buyers data
+        const buyers = await sharePointService.getBuyers(accessToken, { top: 5 })
+        const buyerNames = await sharePointService.getBuyerNames(accessToken)
+        
+        setTestResults(prev => ({
+          ...prev,
+          buyers: {
+            success: true,
+            count: buyers.length,
+            totalBuyerNames: buyerNames.length,
+            sampleBuyers: buyers.slice(0, 3).map(buyer => ({
+              id: buyer.id,
+              buyerName: buyer.buyerName,
+              contactEmail: buyer.contactEmail,
+              phone: buyer.phone
+            })),
+            sampleBuyerNames: buyerNames.slice(0, 5),
+            timestamp: new Date().toISOString()
+          }
+        }))
+        
+      } catch (error) {
+        console.error('Buyers test failed:', error)
+        setTestResults(prev => ({
+          ...prev,
+          buyers: {
+            success: false,
+            error: error.message,
+            timestamp: new Date().toISOString()
+          }
+        }))
+      } finally {
+        setCurrentTest(null)
       }
-
-      // Test getting buyers data
-      const buyers = await sharePointService.getBuyers(accessToken, { top: 5 })
-      const buyerNames = await sharePointService.getBuyerNames(accessToken)
-      
-      setTestResults(prev => ({
-        ...prev,
-        buyers: {
-          success: true,
-          count: buyers.length,
-          totalBuyerNames: buyerNames.length,
-          sampleBuyers: buyers.slice(0, 3).map(buyer => ({
-            id: buyer.id,
-            buyerName: buyer.buyerName,
-            contactEmail: buyer.contactEmail,
-            phone: buyer.phone
-          })),
-          sampleBuyerNames: buyerNames.slice(0, 5),
-          timestamp: new Date().toISOString()
-        }
-      }))
-      
-    } catch (error) {
-      console.error('Buyers test failed:', error)
-      setTestResults(prev => ({
-        ...prev,
-        buyers: {
-          success: false,
-          error: error.message,
-          timestamp: new Date().toISOString()
-        }
-      }))
-    } finally {
-      setCurrentTest(null)
-      setIsRunning(false)
     }
-  }
 
-  /**
-   * Test 3: Invoices Connection - Tests actual invoices list
-   */
-  const testInvoicesConnection = async () => {
-    if (isRunning) return
-    
-    setCurrentTest('invoices')
-    setIsRunning(true)
-    
-    try {
-      const accessToken = await getAccessToken()
-      if (!accessToken) {
-        throw new Error('No access token available. Please sign in.')
+    /**
+     * Test 3: Invoices Connection - Tests actual invoices list
+     */
+    const testInvoicesConnection = async () => {
+      setCurrentTest('invoices')
+      
+      try {
+        const accessToken = await getAccessToken()
+        if (!accessToken) {
+          throw new Error('No access token available. Please sign in.')
+        }
+
+        // Test getting invoices data
+        const invoices = await sharePointService.getInvoices(accessToken, { top: 5 })
+        
+        setTestResults(prev => ({
+          ...prev,
+          invoices: {
+            success: true,
+            count: invoices.length,
+            sampleInvoices: invoices.slice(0, 3).map(invoice => ({
+              id: invoice.id,
+              invoiceNumber: invoice.invoiceNumber,
+              buyer: invoice.buyer,
+              totalAmount: invoice.totalAmount,
+              status: invoice.status,
+              invoiceDate: invoice.invoiceDate
+            })),
+            timestamp: new Date().toISOString()
+          }
+        }))
+        
+      } catch (error) {
+        console.error('Invoices test failed:', error)
+        setTestResults(prev => ({
+          ...prev,
+          invoices: {
+            success: false,
+            error: error.message,
+            timestamp: new Date().toISOString()
+          }
+        }))
+      } finally {
+        setCurrentTest(null)
       }
-
-      // Test getting invoices data
-      const invoices = await sharePointService.getInvoices(accessToken, { top: 5 })
-      
-      setTestResults(prev => ({
-        ...prev,
-        invoices: {
-          success: true,
-          count: invoices.length,
-          sampleInvoices: invoices.slice(0, 3).map(invoice => ({
-            id: invoice.id,
-            invoiceNumber: invoice.invoiceNumber,
-            buyer: invoice.buyer,
-            totalAmount: invoice.totalAmount,
-            status: invoice.status,
-            invoiceDate: invoice.invoiceDate
-          })),
-          timestamp: new Date().toISOString()
-        }
-      }))
-      
-    } catch (error) {
-      console.error('Invoices test failed:', error)
-      setTestResults(prev => ({
-        ...prev,
-        invoices: {
-          success: false,
-          error: error.message,
-          timestamp: new Date().toISOString()
-        }
-      }))
-    } finally {
-      setCurrentTest(null)
-      setIsRunning(false)
     }
-  }
 
-  /**
-   * Test 4: Transactions Connection - Tests actual transactions list
-   */
-  const testTransactionsConnection = async () => {
-    if (isRunning) return
-    
-    setCurrentTest('transactions')
-    setIsRunning(true)
-    
-    try {
-      const accessToken = await getAccessToken()
-      if (!accessToken) {
-        throw new Error('No access token available. Please sign in.')
+    /**
+     * Test 4: Transactions Connection - Tests actual transactions list
+     */
+    const testTransactionsConnection = async () => {
+      setCurrentTest('transactions')
+      
+      try {
+        const accessToken = await getAccessToken()
+        if (!accessToken) {
+          throw new Error('No access token available. Please sign in.')
+        }
+
+        // Test getting transactions data
+        const transactions = await sharePointService.getTransactions(accessToken, { top: 5 })
+        
+        setTestResults(prev => ({
+          ...prev,
+          transactions: {
+            success: true,
+            count: transactions.length,
+            sampleTransactions: transactions.slice(0, 3).map(transaction => ({
+              id: transaction.id,
+              partId: transaction.partId,
+              movementType: transaction.movementType,
+              quantity: transaction.quantity,
+              unitPrice: transaction.unitPrice || transaction.unitCost,
+              invoice: transaction.invoice
+            })),
+            timestamp: new Date().toISOString()
+          }
+        }))
+        
+      } catch (error) {
+        console.error('Transactions test failed:', error)
+        setTestResults(prev => ({
+          ...prev,
+          transactions: {
+            success: false,
+            error: error.message,
+            timestamp: new Date().toISOString()
+          }
+        }))
+      } finally {
+        setCurrentTest(null)
       }
-
-      // Test getting transactions data
-      const transactions = await sharePointService.getTransactions(accessToken, { top: 5 })
-      
-      setTestResults(prev => ({
-        ...prev,
-        transactions: {
-          success: true,
-          count: transactions.length,
-          sampleTransactions: transactions.slice(0, 3).map(transaction => ({
-            id: transaction.id,
-            partId: transaction.partId,
-            movementType: transaction.movementType,
-            quantity: transaction.quantity,
-            unitPrice: transaction.unitPrice || transaction.unitCost,
-            invoice: transaction.invoice
-          })),
-          timestamp: new Date().toISOString()
-        }
-      }))
-      
-    } catch (error) {
-      console.error('Transactions test failed:', error)
-      setTestResults(prev => ({
-        ...prev,
-        transactions: {
-          success: false,
-          error: error.message,
-          timestamp: new Date().toISOString()
-        }
-      }))
-    } finally {
-      setCurrentTest(null)
-      setIsRunning(false)
     }
-  }
 
-  /**
-   * Run all tests in sequence
-   */
-  const runAllTests = async () => {
-    if (isRunning) return
-    
-    setIsRunning(true)
-    
-    try {
-      await runHealthCheck()
-      await new Promise(resolve => setTimeout(resolve, 1000))
+    /**
+     * Run all tests in sequence
+     */
+    const runAllTests = async () => {
+      if (isRunning) return
       
-      await testBuyersConnection()
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      setIsRunning(true)
       
-      await testInvoicesConnection()
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      await testTransactionsConnection()
-      
-    } catch (error) {
-      console.error('Error running all tests:', error)
-    } finally {
-      setIsRunning(false)
+      try {
+        await runHealthCheck()
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        await testBuyersConnection()
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        await testInvoicesConnection()
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        await testTransactionsConnection()
+        
+      } catch (error) {
+        console.error('Error running all tests:', error)
+      } finally {
+        setIsRunning(false)
+      }
     }
-  }
 
   /**
    * Clear all test results

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
+import { useCategories, usePart } from '../../hooks/useSharePoint'
 
 // =================================================================
 // PART FORM COMPONENT
@@ -15,11 +16,16 @@ const PartForm = () => {
   const pageTitle = isEditMode ? 'Edit Part' : 'Add New Part'
 
   // =================================================================
+  // SHAREPOINT HOOKS (ADD AFTER OTHER HOOKS)
+  // =================================================================
+  const { categoryNames: categories, loading: categoriesLoading } = useCategories()
+  const { part: sharePointPart, loading: partLoading } = usePart(isEditMode ? id : null)
+
+  // =================================================================
   // STATE MANAGEMENT
   // =================================================================
-  const [loading, setLoading] = useState(isEditMode)
+  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [categories, setCategories] = useState([])
   const [formData, setFormData] = useState({
     partId: '',
     description: '',
@@ -33,65 +39,49 @@ const PartForm = () => {
   const [touched, setTouched] = useState({})
 
   // =================================================================
-  // DATA FETCHING
+  // DATA FETCHING (REVISED)
   // =================================================================
   useEffect(() => {
-    loadCategories()
-    if (isEditMode) {
-      loadPartData()
+    if (isEditMode && sharePointPart) {
+      loadPartData(sharePointPart)
     }
-  }, [id, isEditMode])
+  }, [isEditMode, sharePointPart])
 
-  const loadCategories = async () => {
-    try {
-      // TODO: Replace with actual SharePoint API call
-      const mockCategories = [
-        'Brake Hose',
-        'Brake Pads',
-        'Wheel Bearing',
-        'Oil Filter',
-        'Air Filter',
-        'Spark Plug',
-        'Timing Belt',
-        'Water Pump',
-        'Fuel Filter',
-        'Transmission Filter'
-      ]
-      
-      setCategories(mockCategories)
-    } catch (err) {
-      console.error('Error loading categories:', err)
-      error('Failed to load categories')
-    }
-  }
 
-  const loadPartData = async () => {
+  const loadPartData = (partData) => {
     try {
-      setLoading(true)
-      
-      // TODO: Replace with actual SharePoint API call
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 800))
-      
-      // Mock data for edit mode
-      const mockPartData = {
-        partId: 'BH001',
-        description: 'Brake Hose - Front Left',
-        category: 'Brake Hose',
-        inventoryOnHand: 5,
-        unitCost: '25.99',
-        unitPrice: '45.99',
-        status: 'Active'
+      if (partData) {
+        // Use real SharePoint data
+        setFormData({
+          partId: partData.partId || '',
+          description: partData.description || '',
+          category: partData.category || '',
+          inventoryOnHand: partData.inventoryOnHand || 0,
+          unitCost: partData.unitCost?.toString() || '',
+          unitPrice: partData.unitPrice?.toString() || '',
+          status: partData.status || 'Active'
+        })
+      } else {
+        // Mock data fallback for testing
+        const mockPartData = {
+          partId: 'BH001',
+          description: 'Brake Hose - Front Left',
+          category: 'Brake Hose',
+          inventoryOnHand: 5,
+          unitCost: '25.99',
+          unitPrice: '45.99',
+          status: 'Active'
+        }
+        setFormData(mockPartData)
       }
-      
-      setFormData(mockPartData)
     } catch (err) {
       console.error('Error loading part data:', err)
       error('Failed to load part data')
-    } finally {
-      setLoading(false)
     }
   }
+
+  // Use combined loading state
+  const isLoading = loading || categoriesLoading || partLoading
 
   // =================================================================
   // FORM VALIDATION
@@ -220,7 +210,7 @@ const PartForm = () => {
   // =================================================================
   // LOADING STATE
   // =================================================================
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="min-h-[400px] flex items-center justify-center">
         <LoadingSpinner size="lg" />

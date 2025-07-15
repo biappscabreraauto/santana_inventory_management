@@ -10,7 +10,7 @@ import { useInvoice, useInvoices, useBuyers, useParts } from '../../hooks/useSha
 import { Plus, Minus, Search, Package, User, Calendar, DollarSign, Save, Send } from 'lucide-react'
 
 // =================================================================
-// MOCK DATA MOVED OUTSIDE COMPONENT TO PREVENT RE-RENDERS
+// MOCK DATA (STATIC TO PREVENT RE-RENDERS)
 // =================================================================
 const mockBuyers = [
   { id: '1', buyerName: 'AutoZone Distribution', contactEmail: 'orders@autozone.com', phone: '555-0101' },
@@ -27,7 +27,7 @@ const mockParts = [
 ]
 
 // =================================================================
-// INVOICE FORM COMPONENT - FIXED INFINITE LOOP
+// INVOICE FORM COMPONENT
 // =================================================================
 const InvoiceForm = () => {
   const { id } = useParams()
@@ -40,7 +40,7 @@ const InvoiceForm = () => {
   // =================================================================
   // INTEGRATION MODE TOGGLE
   // =================================================================
-  const [integrationMode, setIntegrationMode] = useState('mock') // Start with mock
+  const [integrationMode, setIntegrationMode] = useState('mock')
 
   // =================================================================
   // SHAREPOINT HOOKS
@@ -62,7 +62,6 @@ const InvoiceForm = () => {
   
   const { 
     buyers: sharePointBuyers,
-    buyerNames: sharePointBuyerNames,
     loading: buyersLoading 
   } = useBuyers()
   
@@ -99,47 +98,31 @@ const InvoiceForm = () => {
   // =================================================================
   // DATA SELECTION LOGIC (FIXED)
   // =================================================================
-  const {
-    currentInvoice,
-    currentLineItems,
-    buyers,
-    parts,
-    loading,
-    dataError
-  } = useMemo(() => {
-    if (integrationMode === 'live') {
-      return {
-        currentInvoice: sharePointInvoice,
-        currentLineItems: sharePointLineItems,
-        buyers: sharePointBuyers || [],
-        parts: sharePointParts || [],
-        loading: invoiceLoading || buyersLoading || partsLoading || createLoading,
-        dataError: invoiceError
-      }
-    } else {
-      return {
-        currentInvoice: mockInvoiceStatic,
-        currentLineItems: mockLineItemsStatic,
-        buyers: mockBuyers,
-        parts: mockParts,
-        loading: false,
-        dataError: null
-      }
-    }
-  }, [
-    integrationMode, 
-    sharePointInvoice, 
-    sharePointLineItems, 
-    sharePointBuyers, 
-    sharePointParts, 
-    invoiceLoading, 
-    buyersLoading, 
-    partsLoading, 
-    createLoading, 
-    invoiceError, 
-    mockInvoiceStatic, 
-    mockLineItemsStatic
-  ])
+  const currentInvoice = useMemo(() => {
+    return integrationMode === 'live' ? sharePointInvoice : mockInvoiceStatic
+  }, [integrationMode, sharePointInvoice, mockInvoiceStatic])
+
+  const currentLineItems = useMemo(() => {
+    return integrationMode === 'live' ? sharePointLineItems : mockLineItemsStatic
+  }, [integrationMode, sharePointLineItems, mockLineItemsStatic])
+
+  const buyers = useMemo(() => {
+    return integrationMode === 'live' ? (sharePointBuyers || []) : mockBuyers
+  }, [integrationMode, sharePointBuyers])
+
+  const parts = useMemo(() => {
+    return integrationMode === 'live' ? (sharePointParts || []) : mockParts
+  }, [integrationMode, sharePointParts])
+
+  const loading = useMemo(() => {
+    return integrationMode === 'live' 
+      ? (invoiceLoading || buyersLoading || partsLoading || createLoading)
+      : false
+  }, [integrationMode, invoiceLoading, buyersLoading, partsLoading, createLoading])
+
+  const dataError = useMemo(() => {
+    return integrationMode === 'live' ? invoiceError : null
+  }, [integrationMode, invoiceError])
 
   // =================================================================
   // STATE MANAGEMENT
@@ -177,28 +160,28 @@ const InvoiceForm = () => {
         notes: currentInvoice.notes || '',
         totalAmount: currentInvoice.totalAmount || 0
       })
-    } else if (!isEditMode) {
+    } else if (!isEditMode && !formData.invoiceNumber) {
       generateInvoiceNumber()
     }
   }, [isEditMode, currentInvoice])
 
   useEffect(() => {
-    if (currentLineItems) {
+    if (currentLineItems && currentLineItems.length > 0) {
       setLineItems(currentLineItems)
     }
   }, [currentLineItems])
 
   // Recalculate total when line items change
   useEffect(() => {
-    const totals = calculateTotals()
+    const subtotal = lineItems.reduce((sum, item) => sum + (item.total || 0), 0)
     setFormData(prev => ({
       ...prev,
-      totalAmount: totals.total
+      totalAmount: subtotal
     }))
   }, [lineItems])
 
   // =================================================================
-  // HELPER FUNCTIONS (MEMOIZED TO PREVENT RE-RENDERS)
+  // HELPER FUNCTIONS
   // =================================================================
   const generateInvoiceNumber = useCallback(() => {
     const now = new Date()
@@ -222,16 +205,15 @@ const InvoiceForm = () => {
     }).format(amount)
   }, [])
 
-  const calculateTotals = useCallback(() => {
+  const calculateTotals = () => {
     const subtotal = lineItems.reduce((sum, item) => sum + (item.total || 0), 0)
-    const tax = 0 // No tax calculation for now
+    const tax = 0
     const total = subtotal + tax
-
     return { subtotal, tax, total }
-  }, [lineItems])
+  }
 
   // =================================================================
-  // EVENT HANDLERS (MEMOIZED)
+  // EVENT HANDLERS
   // =================================================================
   const handleInputChange = useCallback((field, value) => {
     setFormData(prev => ({
@@ -244,7 +226,6 @@ const InvoiceForm = () => {
       [field]: true
     }))
 
-    // Clear error for this field
     setErrors(prev => {
       if (prev[field]) {
         const newErrors = { ...prev }
@@ -265,11 +246,11 @@ const InvoiceForm = () => {
   }, [buyers])
 
   // =================================================================
-  // LINE ITEM MANAGEMENT (MEMOIZED)
+  // LINE ITEM MANAGEMENT
   // =================================================================
   const addLineItem = useCallback((part = null) => {
     const newItem = {
-      id: Date.now(), // Temporary ID for new items
+      id: Date.now(),
       partId: part?.partId || '',
       partData: part || null,
       quantity: 1,
@@ -278,13 +259,13 @@ const InvoiceForm = () => {
     }
 
     setLineItems(prev => [...prev, newItem])
-    setActiveLineItemIndex(lineItems.length)
+    setActiveLineItemIndex(prev => prev === null ? 0 : prev)
     
     if (!part) {
       setPartSearchTerm('')
       setShowPartDropdown(true)
     }
-  }, [lineItems.length])
+  }, [])
 
   const updateLineItem = useCallback((index, field, value) => {
     setLineItems(prev => {
@@ -294,7 +275,6 @@ const InvoiceForm = () => {
         [field]: value
       }
 
-      // Recalculate total
       if (field === 'quantity' || field === 'unitPrice') {
         const quantity = field === 'quantity' ? parseFloat(value) || 0 : updated[index].quantity
         const unitPrice = field === 'unitPrice' ? parseFloat(value) || 0 : updated[index].unitPrice
@@ -306,18 +286,25 @@ const InvoiceForm = () => {
   }, [])
 
   const selectPartForLineItem = useCallback((index, part) => {
-    updateLineItem(index, 'partId', part.partId)
-    updateLineItem(index, 'partData', part)
-    updateLineItem(index, 'unitPrice', part.unitPrice)
-    
-    // Recalculate total with current quantity
-    const currentQuantity = lineItems[index]?.quantity || 1
-    updateLineItem(index, 'total', currentQuantity * part.unitPrice)
+    setLineItems(prev => {
+      const updated = [...prev]
+      const currentQuantity = updated[index]?.quantity || 1
+      
+      updated[index] = {
+        ...updated[index],
+        partId: part.partId,
+        partData: part,
+        unitPrice: part.unitPrice,
+        total: currentQuantity * part.unitPrice
+      }
+      
+      return updated
+    })
     
     setShowPartDropdown(false)
     setPartSearchTerm('')
     setActiveLineItemIndex(null)
-  }, [lineItems, updateLineItem])
+  }, [])
 
   const removeLineItem = useCallback((index) => {
     setLineItems(prev => prev.filter((_, i) => i !== index))
@@ -326,7 +313,7 @@ const InvoiceForm = () => {
   // =================================================================
   // VALIDATION
   // =================================================================
-  const validateForm = useCallback(() => {
+  const validateForm = () => {
     const newErrors = {}
 
     if (!formData.invoiceNumber.trim()) {
@@ -345,40 +332,12 @@ const InvoiceForm = () => {
       newErrors.lineItems = 'At least one line item is required'
     }
 
-    // Validate line items
-    const lineItemErrors = lineItems.map((item, index) => {
-      const itemErrors = {}
-      
-      if (!item.partId) {
-        itemErrors.partId = 'Part selection is required'
-      }
-      
-      if (!item.quantity || item.quantity <= 0) {
-        itemErrors.quantity = 'Quantity must be greater than 0'
-      }
-      
-      if (item.unitPrice === undefined || item.unitPrice < 0) {
-        itemErrors.unitPrice = 'Unit price must be 0 or greater'
-      }
-
-      // Check inventory availability
-      if (item.partData && item.quantity > item.partData.inventoryOnHand) {
-        itemErrors.quantity = `Only ${item.partData.inventoryOnHand} units available`
-      }
-
-      return Object.keys(itemErrors).length > 0 ? itemErrors : null
-    })
-
-    if (lineItemErrors.some(errors => errors !== null)) {
-      newErrors.lineItemsValidation = lineItemErrors
-    }
-
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
-  }, [formData, lineItems])
+  }
 
   // =================================================================
-  // FORM SUBMISSION (MEMOIZED)
+  // FORM SUBMISSION
   // =================================================================
   const handleSubmit = useCallback(async (e, actionType = 'save') => {
     e.preventDefault()
@@ -390,47 +349,38 @@ const InvoiceForm = () => {
 
     try {
       setSaving(true)
+      const totals = calculateTotals()
 
       const invoiceData = {
         invoiceNumber: formData.invoiceNumber,
         buyer: formData.buyer,
         buyerId: formData.buyerId,
         invoiceDate: formData.invoiceDate,
-        totalAmount: calculateTotals().total,
+        totalAmount: totals.total,
         status: actionType === 'finalize' ? 'Finalized' : formData.status,
         notes: formData.notes,
         lineItems: lineItems
       }
 
-      let result
-      if (isEditMode) {
-        if (integrationMode === 'live') {
-          result = await updateInvoice(invoiceData)
+      if (integrationMode === 'live') {
+        if (isEditMode) {
+          await updateInvoice(invoiceData)
         } else {
-          // Mock update
-          result = { ...invoiceData, id: id }
-          info('Mock: Invoice updated successfully')
+          await createInvoice(invoiceData)
         }
-      } else {
-        if (integrationMode === 'live') {
-          result = await createInvoice(invoiceData)
-        } else {
-          // Mock create
-          result = { ...invoiceData, id: 'mock-' + Date.now() }
-          info('Mock: Invoice created successfully')
-        }
-      }
-
-      // Handle finalization if requested
-      if (actionType === 'finalize' && result.id) {
-        if (integrationMode === 'live') {
+        
+        if (actionType === 'finalize') {
           await finalizeInvoice()
           success('Invoice finalized successfully! Transactions created and inventory updated.')
         } else {
-          info('Mock: Invoice would be finalized and transactions created')
+          success(`Invoice ${isEditMode ? 'updated' : 'created'} successfully!`)
         }
       } else {
-        success(`Invoice ${isEditMode ? 'updated' : 'created'} successfully!`)
+        if (actionType === 'finalize') {
+          info('Mock: Invoice would be finalized and transactions created')
+        } else {
+          info(`Mock: Invoice ${isEditMode ? 'updated' : 'created'} successfully`)
+        }
       }
 
       navigate('/invoices')
@@ -441,22 +391,7 @@ const InvoiceForm = () => {
     } finally {
       setSaving(false)
     }
-  }, [
-    validateForm, 
-    error, 
-    formData, 
-    calculateTotals, 
-    lineItems, 
-    isEditMode, 
-    integrationMode, 
-    updateInvoice, 
-    id, 
-    info, 
-    createInvoice, 
-    finalizeInvoice, 
-    success, 
-    navigate
-  ])
+  }, [formData, lineItems, integrationMode, isEditMode, error, info, success, navigate, updateInvoice, createInvoice, finalizeInvoice])
 
   const handleDelete = useCallback(async () => {
     if (!confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {
@@ -484,7 +419,7 @@ const InvoiceForm = () => {
   }, [integrationMode, deleteInvoice, info, success, navigate, error])
 
   // =================================================================
-  // FILTERED PARTS FOR SEARCH (MEMOIZED)
+  // FILTERED PARTS FOR SEARCH
   // =================================================================
   const filteredParts = useMemo(() => {
     if (!partSearchTerm.trim()) return []
@@ -492,7 +427,7 @@ const InvoiceForm = () => {
     return parts.filter(part => 
       part.partId.toLowerCase().includes(partSearchTerm.toLowerCase()) ||
       part.description.toLowerCase().includes(partSearchTerm.toLowerCase())
-    ).slice(0, 10) // Limit to 10 results
+    ).slice(0, 10)
   }, [parts, partSearchTerm])
 
   // =================================================================
@@ -1055,23 +990,6 @@ const InvoiceForm = () => {
           )}
         </div>
       </form>
-
-      {/* Debug Info (Development Only) */}
-      {import.meta.env.VITE_DEV_MODE === 'true' && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-          <h4 className="font-medium text-gray-900 mb-2">Debug Info (Development)</h4>
-          <div className="text-sm text-gray-600 space-y-1">
-            <div>Integration Mode: {integrationMode}</div>
-            <div>Is Edit Mode: {isEditMode ? 'Yes' : 'No'}</div>
-            <div>Form Valid: {validateForm() ? 'Yes' : 'No'}</div>
-            <div>Line Items: {lineItems.length}</div>
-            <div>Total Amount: {formatCurrency(formData.totalAmount)}</div>
-            <div>Buyers Loaded: {buyers.length}</div>
-            <div>Parts Loaded: {parts.length}</div>
-            <div>Loading: {loading ? 'Yes' : 'No'}</div>
-          </div>
-        </div>
-      )}
 
       {/* Click outside to close dropdown */}
       {showPartDropdown && (

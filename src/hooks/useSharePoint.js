@@ -84,7 +84,7 @@ export const useParts = (options = {}) => {
         setLoading(false)
       }
     }
-  }, [executeOperation, options])
+  }, [executeOperation,  JSON.stringify(options)])
 
   /**
    * Create a new part
@@ -424,7 +424,7 @@ export const useBuyers = (options = {}) => {
         setLoading(false)
       }
     }
-  }, [executeOperation, options])
+  }, [executeOperation, JSON.stringify(options)])
 
   /**
    * Create a new buyer
@@ -687,7 +687,7 @@ export const useInvoices = (options = {}) => {
         setLoading(false)
       }
     }
-  }, [executeOperation, options])
+  }, [executeOperation, JSON.stringify(options)])
 
   /**
    * Create a new invoice
@@ -1000,7 +1000,7 @@ export const useTransactions = (options = {}) => {
         setLoading(false)
       }
     }
-  }, [executeOperation, options])
+  }, [executeOperation, JSON.stringify(options)])
 
   /**
    * Create a new transaction
