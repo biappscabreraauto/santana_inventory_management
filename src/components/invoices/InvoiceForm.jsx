@@ -3,31 +3,14 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
 
-// Import SharePoint hooks (NOW AVAILABLE)
+// Import SharePoint hooks - LIVE MODE ONLY
 import { useInvoice, useInvoices, useBuyers, useParts } from '../../hooks/useSharePoint'
 
 // Import icons
 import { Plus, Minus, Search, Package, User, Calendar, DollarSign, Save, Send } from 'lucide-react'
 
 // =================================================================
-// MOCK DATA (STATIC TO PREVENT RE-RENDERS)
-// =================================================================
-const mockBuyers = [
-  { id: '1', buyerName: 'AutoZone Distribution', contactEmail: 'orders@autozone.com', phone: '555-0101' },
-  { id: '2', buyerName: 'O\'Reilly Auto Parts', contactEmail: 'purchasing@oreillyauto.com', phone: '555-0102' },
-  { id: '3', buyerName: 'NAPA Auto Parts', contactEmail: 'wholesale@napaonline.com', phone: '555-0103' }
-]
-
-const mockParts = [
-  { id: '1', partId: 'BH001', description: 'Brake Hose - Front Left', unitPrice: 45.99, inventoryOnHand: 5 },
-  { id: '2', partId: 'BP002', description: 'Brake Pad Set - Premium', unitPrice: 129.99, inventoryOnHand: 12 },
-  { id: '3', partId: 'WB003', description: 'Wheel Bearing - Rear', unitPrice: 89.99, inventoryOnHand: 8 },
-  { id: '4', partId: 'OF004', description: 'Oil Filter - Standard', unitPrice: 16.99, inventoryOnHand: 25 },
-  { id: '5', partId: 'AF005', description: 'Air Filter - High Flow', unitPrice: 24.99, inventoryOnHand: 15 }
-]
-
-// =================================================================
-// INVOICE FORM COMPONENT
+// INVOICE FORM COMPONENT - PRODUCTION VERSION (LIVE MODE ONLY)
 // =================================================================
 const InvoiceForm = () => {
   const { id } = useParams()
@@ -38,12 +21,7 @@ const InvoiceForm = () => {
   const pageTitle = isEditMode ? 'Edit Invoice' : 'Create Invoice'
 
   // =================================================================
-  // INTEGRATION MODE TOGGLE
-  // =================================================================
-  const [integrationMode, setIntegrationMode] = useState('mock')
-
-  // =================================================================
-  // SHAREPOINT HOOKS
+  // SHAREPOINT HOOKS - LIVE DATA ONLY
   // =================================================================
   const { 
     invoice: sharePointInvoice,
@@ -61,68 +39,18 @@ const InvoiceForm = () => {
   } = useInvoices()
   
   const { 
-    buyers: sharePointBuyers,
+    buyers,
     loading: buyersLoading 
   } = useBuyers()
   
   const { 
-    parts: sharePointParts,
+    parts,
     loading: partsLoading 
   } = useParts()
 
-  // =================================================================
-  // MOCK DATA FOR EDIT MODE (STATIC TO PREVENT RE-RENDERS)
-  // =================================================================
-  const mockInvoiceStatic = useMemo(() => {
-    if (!isEditMode) return null
-    return {
-      id: id,
-      invoiceNumber: 'INV-2025-001',
-      buyer: 'AutoZone Distribution',
-      buyerId: '1',
-      invoiceDate: '2025-01-14',
-      totalAmount: 350.97,
-      status: 'Draft',
-      notes: 'Sample invoice for testing'
-    }
-  }, [id, isEditMode])
-
-  const mockLineItemsStatic = useMemo(() => {
-    if (!isEditMode) return []
-    return [
-      { id: '1', partId: 'BH001', partData: mockParts[0], quantity: 2, unitPrice: 45.99, total: 91.98 },
-      { id: '2', partId: 'BP002', partData: mockParts[1], quantity: 2, unitPrice: 129.99, total: 259.98 }
-    ]
-  }, [isEditMode])
-
-  // =================================================================
-  // DATA SELECTION LOGIC (FIXED)
-  // =================================================================
-  const currentInvoice = useMemo(() => {
-    return integrationMode === 'live' ? sharePointInvoice : mockInvoiceStatic
-  }, [integrationMode, sharePointInvoice, mockInvoiceStatic])
-
-  const currentLineItems = useMemo(() => {
-    return integrationMode === 'live' ? sharePointLineItems : mockLineItemsStatic
-  }, [integrationMode, sharePointLineItems, mockLineItemsStatic])
-
-  const buyers = useMemo(() => {
-    return integrationMode === 'live' ? (sharePointBuyers || []) : mockBuyers
-  }, [integrationMode, sharePointBuyers])
-
-  const parts = useMemo(() => {
-    return integrationMode === 'live' ? (sharePointParts || []) : mockParts
-  }, [integrationMode, sharePointParts])
-
-  const loading = useMemo(() => {
-    return integrationMode === 'live' 
-      ? (invoiceLoading || buyersLoading || partsLoading || createLoading)
-      : false
-  }, [integrationMode, invoiceLoading, buyersLoading, partsLoading, createLoading])
-
-  const dataError = useMemo(() => {
-    return integrationMode === 'live' ? invoiceError : null
-  }, [integrationMode, invoiceError])
+  // Use SharePoint data directly
+  const loading = invoiceLoading || buyersLoading || partsLoading || createLoading
+  const dataError = invoiceError
 
   // =================================================================
   // STATE MANAGEMENT
@@ -150,26 +78,26 @@ const InvoiceForm = () => {
   // DATA LOADING AND INITIALIZATION
   // =================================================================
   useEffect(() => {
-    if (isEditMode && currentInvoice) {
+    if (isEditMode && sharePointInvoice) {
       setFormData({
-        invoiceNumber: currentInvoice.invoiceNumber || '',
-        buyer: currentInvoice.buyer || '',
-        buyerId: currentInvoice.buyerId || null,
-        invoiceDate: currentInvoice.invoiceDate ? currentInvoice.invoiceDate.split('T')[0] : '',
-        status: currentInvoice.status || 'Draft',
-        notes: currentInvoice.notes || '',
-        totalAmount: currentInvoice.totalAmount || 0
+        invoiceNumber: sharePointInvoice.invoiceNumber || '',
+        buyer: sharePointInvoice.buyer || '',
+        buyerId: sharePointInvoice.buyerId || null,
+        invoiceDate: sharePointInvoice.invoiceDate ? sharePointInvoice.invoiceDate.split('T')[0] : '',
+        status: sharePointInvoice.status || 'Draft',
+        notes: sharePointInvoice.notes || '',
+        totalAmount: sharePointInvoice.totalAmount || 0
       })
     } else if (!isEditMode && !formData.invoiceNumber) {
       generateInvoiceNumber()
     }
-  }, [isEditMode, currentInvoice])
+  }, [isEditMode, sharePointInvoice])
 
   useEffect(() => {
-    if (currentLineItems && currentLineItems.length > 0) {
-      setLineItems(currentLineItems)
+    if (sharePointLineItems && sharePointLineItems.length > 0) {
+      setLineItems(sharePointLineItems)
     }
-  }, [currentLineItems])
+  }, [sharePointLineItems])
 
   // Recalculate total when line items change
   useEffect(() => {
@@ -362,25 +290,17 @@ const InvoiceForm = () => {
         lineItems: lineItems
       }
 
-      if (integrationMode === 'live') {
-        if (isEditMode) {
-          await updateInvoice(invoiceData)
-        } else {
-          await createInvoice(invoiceData)
-        }
-        
-        if (actionType === 'finalize') {
-          await finalizeInvoice()
-          success('Invoice finalized successfully! Transactions created and inventory updated.')
-        } else {
-          success(`Invoice ${isEditMode ? 'updated' : 'created'} successfully!`)
-        }
+      if (isEditMode) {
+        await updateInvoice(invoiceData)
       } else {
-        if (actionType === 'finalize') {
-          info('Mock: Invoice would be finalized and transactions created')
-        } else {
-          info(`Mock: Invoice ${isEditMode ? 'updated' : 'created'} successfully`)
-        }
+        await createInvoice(invoiceData)
+      }
+      
+      if (actionType === 'finalize') {
+        await finalizeInvoice()
+        success('Invoice finalized successfully! Transactions created and inventory updated.')
+      } else {
+        success(`Invoice ${isEditMode ? 'updated' : 'created'} successfully!`)
       }
 
       navigate('/invoices')
@@ -391,7 +311,7 @@ const InvoiceForm = () => {
     } finally {
       setSaving(false)
     }
-  }, [formData, lineItems, integrationMode, isEditMode, error, info, success, navigate, updateInvoice, createInvoice, finalizeInvoice])
+  }, [formData, lineItems, isEditMode, error, success, navigate, updateInvoice, createInvoice, finalizeInvoice])
 
   const handleDelete = useCallback(async () => {
     if (!confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {
@@ -400,13 +320,7 @@ const InvoiceForm = () => {
 
     try {
       setSaving(true)
-      
-      if (integrationMode === 'live') {
-        await deleteInvoice()
-      } else {
-        info('Mock: Invoice would be deleted')
-      }
-      
+      await deleteInvoice()
       success('Invoice deleted successfully')
       navigate('/invoices')
       
@@ -416,7 +330,7 @@ const InvoiceForm = () => {
     } finally {
       setSaving(false)
     }
-  }, [integrationMode, deleteInvoice, info, success, navigate, error])
+  }, [deleteInvoice, success, navigate, error])
 
   // =================================================================
   // FILTERED PARTS FOR SEARCH
@@ -429,27 +343,6 @@ const InvoiceForm = () => {
       part.description.toLowerCase().includes(partSearchTerm.toLowerCase())
     ).slice(0, 10)
   }, [parts, partSearchTerm])
-
-  // =================================================================
-  // INTEGRATION MODE DISPLAY
-  // =================================================================
-  if (integrationMode === 'test') {
-    return (
-      <div className="min-h-[400px] flex items-center justify-center">
-        <div className="text-center">
-          <div className="text-blue-400 text-4xl mb-4">🧪</div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Test Mode</h3>
-          <p className="text-gray-600 mb-4">SharePoint connection testing is not available in form mode.</p>
-          <button
-            onClick={() => setIntegrationMode('mock')}
-            className="btn btn-primary"
-          >
-            Switch to Mock Mode
-          </button>
-        </div>
-      </div>
-    )
-  }
 
   // =================================================================
   // LOADING STATE
@@ -479,12 +372,12 @@ const InvoiceForm = () => {
           <p className="text-gray-600 mb-4">{dataError}</p>
           <div className="space-x-3">
             <button
-              onClick={() => setIntegrationMode('mock')}
-              className="btn btn-secondary"
+              onClick={() => window.location.reload()}
+              className="btn btn-primary"
             >
-              Use Mock Data
+              🔄 Retry
             </button>
-            <Link to="/invoices" className="btn btn-primary">
+            <Link to="/invoices" className="btn btn-secondary">
               Back to Invoices
             </Link>
           </div>
@@ -498,41 +391,6 @@ const InvoiceForm = () => {
   // =================================================================
   return (
     <div className="space-y-6">
-      {/* Integration Mode Toggle */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h4 className="font-medium text-blue-900">Integration Mode</h4>
-            <p className="text-sm text-blue-700">
-              {integrationMode === 'mock' && 'Using mock data for development'}
-              {integrationMode === 'live' && 'Connected to live SharePoint data'}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setIntegrationMode('mock')}
-              className={`px-3 py-1 text-xs rounded ${
-                integrationMode === 'mock' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-white text-blue-600 border border-blue-600'
-              }`}
-            >
-              🔧 Mock
-            </button>
-            <button
-              onClick={() => setIntegrationMode('live')}
-              className={`px-3 py-1 text-xs rounded ${
-                integrationMode === 'live' 
-                  ? 'bg-green-600 text-white' 
-                  : 'bg-white text-green-600 border border-green-600'
-              }`}
-            >
-              🚀 Live
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -840,11 +698,11 @@ const InvoiceForm = () => {
                     </div>
                   </div>
                   
-                  {isEditMode && currentInvoice && (
+                  {isEditMode && sharePointInvoice && (
                     <div className="text-sm text-gray-600">
-                      <div>Created: {new Date(currentInvoice.created || currentInvoice.invoiceDate).toLocaleDateString()}</div>
-                      {currentInvoice.modified && (
-                        <div>Modified: {new Date(currentInvoice.modified).toLocaleDateString()}</div>
+                      <div>Created: {new Date(sharePointInvoice.created || sharePointInvoice.invoiceDate).toLocaleDateString()}</div>
+                      {sharePointInvoice.modified && (
+                        <div>Modified: {new Date(sharePointInvoice.modified).toLocaleDateString()}</div>
                       )}
                     </div>
                   )}
@@ -979,15 +837,6 @@ const InvoiceForm = () => {
               {formData.status === 'Finalized' && ' Finalized invoices cannot be edited.'}
             </p>
           </div>
-
-          {/* Integration Status */}
-          {integrationMode === 'mock' && (
-            <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded-md">
-              <p className="text-xs text-yellow-700">
-                ⚠️ Mock mode: Changes won't be saved to SharePoint
-              </p>
-            </div>
-          )}
         </div>
       </form>
 

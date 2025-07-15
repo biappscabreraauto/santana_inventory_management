@@ -3,109 +3,34 @@ import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
 
-// Import SharePoint hooks
+// Import SharePoint hooks - LIVE MODE ONLY
 import { useParts, useCategories } from '../../hooks/useSharePoint'
 
-// Import the SharePoint test component
-import SharePointConnectionTest from './SharePointConnectionTest'
-
 // =================================================================
-// PARTS TABLE COMPONENT - FULL SHAREPOINT INTEGRATION
+// PARTS TABLE COMPONENT - PRODUCTION VERSION (LIVE MODE ONLY)
 // =================================================================
 const PartsTable = () => {
   const { success, error, info } = useToast()
   
   // =================================================================
-  // INTEGRATION MODE TOGGLE
-  // =================================================================
-  const [integrationMode, setIntegrationMode] = useState('mock') // Start with mock, then test, then live
-  
-  // =================================================================
-  // SHAREPOINT HOOKS
+  // SHAREPOINT HOOKS - LIVE DATA ONLY
   // =================================================================
   const { 
-    parts: sharePointParts, 
-    loading: sharePointLoading, 
-    error: sharePointError,
+    parts, 
+    loading: partsLoading, 
+    error: partsError,
     deleteMultipleParts,
     refreshParts
   } = useParts()
   
   const { 
-    categoryNames: sharePointCategories, 
+    categoryNames: categories, 
     loading: categoriesLoading 
   } = useCategories()
 
-  // =================================================================
-  // MOCK DATA (FALLBACK)
-  // =================================================================
-  const [mockParts] = useState([
-    {
-      id: '1',
-      partId: 'BH001',
-      description: 'Brake Hose - Front Left',
-      category: 'Brake Hose',
-      inventoryOnHand: 5,
-      unitCost: 25.99,
-      unitPrice: 45.99,
-      status: 'Active',
-      created: '2024-01-15',
-      modified: '2024-07-10'
-    },
-    {
-      id: '2',
-      partId: 'BP002',
-      description: 'Brake Pad Set - Premium',
-      category: 'Brake Pads',
-      inventoryOnHand: 12,
-      unitCost: 89.99,
-      unitPrice: 149.99,
-      status: 'Active',
-      created: '2024-02-20',
-      modified: '2024-07-12'
-    },
-    {
-      id: '3',
-      partId: 'WB003',
-      description: 'Wheel Bearing - Rear',
-      category: 'Wheel Bearing',
-      inventoryOnHand: 0,
-      unitCost: 65.50,
-      unitPrice: 119.99,
-      status: 'Active',
-      created: '2024-03-10',
-      modified: '2024-06-28'
-    },
-    {
-      id: '4',
-      partId: 'OL004',
-      description: 'Oil Filter - Standard',
-      category: 'Oil Filter',
-      inventoryOnHand: 25,
-      unitCost: 8.99,
-      unitPrice: 16.99,
-      status: 'Active',
-      created: '2024-04-05',
-      modified: '2024-07-08'
-    }
-  ])
-
-  const mockCategories = [
-    'Brake Hose',
-    'Brake Pads', 
-    'Wheel Bearing',
-    'Oil Filter',
-    'Air Filter',
-    'Spark Plug'
-  ]
-
-  // =================================================================
-  // DATA SOURCE SELECTION
-  // =================================================================
-  const parts = integrationMode === 'live' ? sharePointParts : mockParts
-  const categories = integrationMode === 'live' ? sharePointCategories : mockCategories
-  const loading = integrationMode === 'live' ? sharePointLoading : false
-  const dataError = integrationMode === 'live' ? sharePointError : null
+  // Use SharePoint data directly
+  const loading = partsLoading || categoriesLoading
+  const dataError = partsError
 
   // =================================================================
   // LOCAL STATE FOR UI
@@ -181,21 +106,15 @@ const PartsTable = () => {
 
   const handleDeleteSelected = async () => {
     try {
-      if (integrationMode === 'live') {
-        // Use SharePoint service for real deletions
-        const result = await deleteMultipleParts(selectedParts)
-        
-        if (result.succeeded > 0) {
-          success(`Successfully deleted ${result.succeeded} part(s)`)
-        }
-        
-        if (result.failed > 0) {
-          error(`Failed to delete ${result.failed} part(s)`)
-        }
-      } else {
-        // Mock deletion for testing
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        success(`Mock deletion: ${selectedParts.length} part(s) would be deleted`)
+      // Use SharePoint service for real deletions
+      const result = await deleteMultipleParts(selectedParts)
+      
+      if (result.succeeded > 0) {
+        success(`Successfully deleted ${result.succeeded} part(s)`)
+      }
+      
+      if (result.failed > 0) {
+        error(`Failed to delete ${result.failed} part(s)`)
       }
       
       setSelectedParts([])
@@ -212,12 +131,8 @@ const PartsTable = () => {
   }
 
   const handleRefreshData = () => {
-    if (integrationMode === 'live') {
-      refreshParts()
-      success('Parts data refreshed!')
-    } else {
-      info('Refresh only works in live mode')
-    }
+    refreshParts()
+    success('Parts data refreshed!')
   }
 
   // =================================================================
@@ -232,13 +147,6 @@ const PartsTable = () => {
   const getSortIcon = (columnKey) => {
     if (sortConfig.key !== columnKey) return '↕️'
     return sortConfig.direction === 'asc' ? '↑' : '↓'
-  }
-
-  // =================================================================
-  // INTEGRATION MODE DISPLAY
-  // =================================================================
-  if (integrationMode === 'test') {
-    return <SharePointConnectionTest />
   }
 
   // =================================================================
@@ -267,17 +175,17 @@ const PartsTable = () => {
           <p className="text-gray-600 mb-4">{dataError}</p>
           <div className="space-x-3">
             <button
-              onClick={() => setIntegrationMode('mock')}
-              className="btn btn-secondary"
-            >
-              Use Mock Data
-            </button>
-            <button
-              onClick={() => setIntegrationMode('test')}
+              onClick={handleRefreshData}
               className="btn btn-primary"
             >
-              Test Connection
+              🔄 Retry Connection
             </button>
+            <Link
+              to="/parts/new"
+              className="btn btn-secondary"
+            >
+              Add Part Anyway
+            </Link>
           </div>
         </div>
       </div>
@@ -289,72 +197,22 @@ const PartsTable = () => {
   // =================================================================
   return (
     <div className="space-y-6">
-      {/* Integration Mode Toggle */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h4 className="font-medium text-blue-900">Integration Mode</h4>
-            <p className="text-sm text-blue-700">
-              {integrationMode === 'mock' && 'Using mock data for development'}
-              {integrationMode === 'test' && 'Testing SharePoint connection'}
-              {integrationMode === 'live' && 'Connected to live SharePoint data'}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setIntegrationMode('test')}
-              className={`px-3 py-1 text-xs rounded ${
-                integrationMode === 'test' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-white text-blue-600 border border-blue-300'
-              }`}
-            >
-              🧪 Test
-            </button>
-            <button
-              onClick={() => setIntegrationMode('mock')}
-              className={`px-3 py-1 text-xs rounded ${
-                integrationMode === 'mock' 
-                  ? 'bg-blue-600 text-white' 
-                  : 'bg-white text-blue-600 border border-blue-300'
-              }`}
-            >
-              🔧 Mock
-            </button>
-            <button
-              onClick={() => setIntegrationMode('live')}
-              className={`px-3 py-1 text-xs rounded ${
-                integrationMode === 'live' 
-                  ? 'bg-green-600 text-white' 
-                  : 'bg-white text-green-600 border border-green-300'
-              }`}
-            >
-              🚀 Live
-            </button>
-          </div>
-        </div>
-      </div>
-
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Parts Inventory</h1>
           <p className="text-gray-600">
             Showing {filteredParts.length} of {parts.length} parts
-            {integrationMode === 'live' && <span className="text-green-600 ml-2">• Live Data</span>}
-            {integrationMode === 'mock' && <span className="text-blue-600 ml-2">• Mock Data</span>}
           </p>
         </div>
         
         <div className="flex flex-col sm:flex-row gap-3">
-          {integrationMode === 'live' && (
-            <button
-              onClick={handleRefreshData}
-              className="btn btn-outline"
-            >
-              🔄 Refresh
-            </button>
-          )}
+          <button
+            onClick={handleRefreshData}
+            className="btn btn-outline"
+          >
+            🔄 Refresh
+          </button>
           
           <button
             onClick={handleExportParts}
@@ -366,6 +224,30 @@ const PartsTable = () => {
           <Link to="/parts/new" className="btn btn-primary">
             ➕ Add New Part
           </Link>
+        </div>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="text-sm font-medium text-gray-500 mb-1">Total Parts</div>
+          <div className="text-2xl font-bold text-gray-900">{parts.length}</div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="text-sm font-medium text-gray-500 mb-1">Categories</div>
+          <div className="text-2xl font-bold text-blue-600">{categories.length}</div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="text-sm font-medium text-gray-500 mb-1">Low Stock</div>
+          <div className="text-2xl font-bold text-yellow-600">
+            {parts.filter(part => part.inventoryOnHand <= 5 && part.inventoryOnHand > 0).length}
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="text-sm font-medium text-gray-500 mb-1">Out of Stock</div>
+          <div className="text-2xl font-bold text-red-600">
+            {parts.filter(part => part.inventoryOnHand === 0).length}
+          </div>
         </div>
       </div>
 
@@ -642,13 +524,6 @@ const PartsTable = () => {
                   Are you sure you want to delete {selectedParts.length} selected part(s)? 
                   This action cannot be undone.
                 </p>
-                {integrationMode === 'mock' && (
-                  <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded">
-                    <p className="text-xs text-blue-600">
-                      ℹ️ Mock mode: No actual data will be deleted
-                    </p>
-                  </div>
-                )}
               </div>
               <div className="items-center px-4 py-3">
                 <div className="flex gap-3">
@@ -656,7 +531,7 @@ const PartsTable = () => {
                     onClick={handleDeleteSelected}
                     className="btn btn-danger flex-1"
                   >
-                    {integrationMode === 'mock' ? 'Mock Delete' : 'Delete'}
+                    Delete Parts
                   </button>
                   <button
                     onClick={() => setShowDeleteModal(false)}
@@ -667,22 +542,6 @@ const PartsTable = () => {
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Debug Info (only in dev mode) */}
-      {import.meta.env.VITE_DEV_MODE === 'true' && (
-        <div className="bg-gray-100 rounded-lg p-4 text-xs text-gray-600">
-          <h4 className="font-medium mb-2">Debug Info</h4>
-          <div className="space-y-1">
-            <p>Integration Mode: {integrationMode}</p>
-            <p>Parts Count: {parts.length}</p>
-            <p>Categories Count: {categories.length}</p>
-            <p>Loading: {loading ? 'Yes' : 'No'}</p>
-            <p>Error: {dataError || 'None'}</p>
-            <p>SharePoint Loading: {sharePointLoading ? 'Yes' : 'No'}</p>
-            <p>Categories Loading: {categoriesLoading ? 'Yes' : 'No'}</p>
           </div>
         </div>
       )}
