@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
+import { useSharePointBase } from '../../hooks/useSharePoint'
+import sharePointService from '../../services/sharepoint'
 
 // Import SharePoint hooks - LIVE MODE ONLY
 import { useInvoice, useInvoices, useBuyers, useParts } from '../../hooks/useSharePoint'
@@ -16,6 +18,7 @@ const InvoiceForm = () => {
   const { id } = useParams()
   const navigate = useNavigate()
   const { success, error, info } = useToast()
+  const { executeOperation } = useSharePointBase()
   
   const isEditMode = Boolean(id)
   const pageTitle = isEditMode ? 'Edit Invoice' : 'Create Invoice'
@@ -290,14 +293,31 @@ const InvoiceForm = () => {
         lineItems: lineItems
       }
 
+      let invoiceResult
+      
       if (isEditMode) {
-        await updateInvoice(invoiceData)
+        // Edit existing invoice
+        invoiceResult = await updateInvoice(invoiceData)
       } else {
-        await createInvoice(invoiceData)
+        // Create new invoice
+        invoiceResult = await createInvoice(invoiceData)
       }
       
+      // FIXED: Handle finalization with proper invoice ID
       if (actionType === 'finalize') {
-        await finalizeInvoice()
+        // Get the invoice ID from the result
+        const finalizeInvoiceId = isEditMode ? id : invoiceResult.id
+        
+        if (!finalizeInvoiceId) {
+          throw new Error('Invoice ID not found for finalization')
+        }
+        
+        // Call the finalization service directly with proper parameters
+        await executeOperation(
+          (token) => sharePointService.finalizeInvoice(token, finalizeInvoiceId, lineItems),
+          'Failed to finalize invoice'
+        )
+        
         success('Invoice finalized successfully! Transactions created and inventory updated.')
       } else {
         success(`Invoice ${isEditMode ? 'updated' : 'created'} successfully!`)
@@ -311,7 +331,7 @@ const InvoiceForm = () => {
     } finally {
       setSaving(false)
     }
-  }, [formData, lineItems, isEditMode, error, success, navigate, updateInvoice, createInvoice, finalizeInvoice])
+  }, [formData, lineItems, isEditMode, error, success, navigate, updateInvoice, createInvoice, id, executeOperation])
 
   const handleDelete = useCallback(async () => {
     if (!confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {

@@ -113,13 +113,13 @@ const transformSharePointItem = (sharePointItem, listType) => {
       return {
         ...baseItem,
         // Handle part lookup - may need to be text in future
-        partId: fields.Part?.LookupValue || fields.Part || '',
+        partId: fields.Part || '', // Simple text field
         movementType: fields.MovementType,
         quantity: fields.Quantity || 0,
         unitCost: fields.UnitCost || 0,
         unitPrice: fields.UnitPrice || 0,
         // Handle invoice lookup - may need to be text in future
-        invoice: fields.Invoice?.LookupValue || fields.Invoice || '',
+        invoice: fields.Invoice || '', // Now simple text field
         // Handle buyer lookup - may need to be text in future
         buyer: fields.Buyer?.LookupValue || fields.Buyer || '',
         notes: fields.Notes || '',
