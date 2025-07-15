@@ -77,58 +77,143 @@ const InvoiceForm = () => {
   const [showPartDropdown, setShowPartDropdown] = useState(false)
   const [activeLineItemIndex, setActiveLineItemIndex] = useState(null)
 
-  // =================================================================
-  // DATA LOADING AND INITIALIZATION
-  // =================================================================
-  useEffect(() => {
-    if (isEditMode && sharePointInvoice) {
-      setFormData({
-        invoiceNumber: sharePointInvoice.invoiceNumber || '',
-        buyer: sharePointInvoice.buyer || '',
-        buyerId: sharePointInvoice.buyerId || null,
-        invoiceDate: sharePointInvoice.invoiceDate ? sharePointInvoice.invoiceDate.split('T')[0] : '',
-        status: sharePointInvoice.status || 'Draft',
-        notes: sharePointInvoice.notes || '',
-        totalAmount: sharePointInvoice.totalAmount || 0
-      })
-    } else if (!isEditMode && !formData.invoiceNumber) {
-      generateInvoiceNumber()
-    }
-  }, [isEditMode, sharePointInvoice])
-
-  useEffect(() => {
-    if (sharePointLineItems && sharePointLineItems.length > 0) {
-      setLineItems(sharePointLineItems)
-    }
-  }, [sharePointLineItems])
-
-  // Recalculate total when line items change
-  useEffect(() => {
-    const subtotal = lineItems.reduce((sum, item) => sum + (item.total || 0), 0)
-    setFormData(prev => ({
-      ...prev,
-      totalAmount: subtotal
-    }))
-  }, [lineItems])
-
-  // =================================================================
-  // HELPER FUNCTIONS
-  // =================================================================
   const generateInvoiceNumber = useCallback(() => {
-    const now = new Date()
-    const year = now.getFullYear()
-    const month = String(now.getMonth() + 1).padStart(2, '0')
-    const day = String(now.getDate()).padStart(2, '0')
-    const time = String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0')
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
     
-    const invoiceNumber = `INV-${year}${month}${day}-${time}`
+    const invoiceNumber = `INV-${year}${month}${day}-${hours}${minutes}`;
+    
+    console.log('Generated invoice number:', invoiceNumber);
     
     setFormData(prev => ({
       ...prev,
       invoiceNumber
-    }))
-  }, [])
+    }));
+    
+    return invoiceNumber;
+  }, []);
 
+  // =================================================================
+  // DATA LOADING AND INITIALIZATION
+  // =================================================================
+  
+  // 1. EDIT MODE: Load existing invoice data
+  useEffect(() => {
+    if (isEditMode && sharePointInvoice && buyers.length > 0) {
+      console.log('Loading invoice data for editing:', sharePointInvoice);
+      console.log('Available buyers:', buyers);
+      
+      // Find the buyer by ID first, then by name as fallback
+      let selectedBuyer = null;
+      
+      if (sharePointInvoice.buyerId) {
+        selectedBuyer = buyers.find(b => b.id === sharePointInvoice.buyerId);
+      }
+      
+      // Fallback: try to match by buyer name if ID lookup fails
+      if (!selectedBuyer && sharePointInvoice.buyer) {
+        selectedBuyer = buyers.find(b => 
+          b.buyerName && b.buyerName.toLowerCase() === sharePointInvoice.buyer.toLowerCase()
+        );
+      }
+      
+      console.log('Selected buyer:', selectedBuyer);
+      
+      setFormData(prev => ({
+        ...prev,
+        invoiceNumber: sharePointInvoice.invoiceNumber || '',
+        buyer: selectedBuyer?.buyerName || sharePointInvoice.buyer || '',
+        buyerId: selectedBuyer?.id || sharePointInvoice.buyerId || null,
+        invoiceDate: sharePointInvoice.invoiceDate 
+          ? new Date(sharePointInvoice.invoiceDate).toISOString().split('T')[0] 
+          : new Date().toISOString().split('T')[0],
+        status: sharePointInvoice.status || 'Draft',
+        notes: sharePointInvoice.notes || '',
+        totalAmount: sharePointInvoice.totalAmount || 0
+      }));
+    }
+  }, [isEditMode, sharePointInvoice, buyers]);
+
+  // 2. NEW INVOICE MODE: Generate invoice number automatically
+  useEffect(() => {
+    if (!isEditMode && !formData.invoiceNumber) {
+      console.log('Generating invoice number for new invoice...');
+      generateInvoiceNumber();
+    }
+  }, [isEditMode, formData.invoiceNumber, generateInvoiceNumber]);
+
+  // 3. COMPONENT MOUNT: Ensure new invoices get invoice numbers
+  useEffect(() => {
+    // Only for new invoices - force generation if needed
+    if (!isEditMode) {
+      const ensureInvoiceNumber = () => {
+        if (!formData.invoiceNumber) {
+          console.log('Ensuring invoice number exists on mount...');
+          generateInvoiceNumber();
+        }
+      };
+      
+      // Check immediately
+      ensureInvoiceNumber();
+      
+      // Also check after a delay to handle any state initialization timing
+      const timer = setTimeout(ensureInvoiceNumber, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, []); // Only run once on component mount
+
+  // 4. LINE ITEMS: Load existing line items for edit mode
+  useEffect(() => {
+    if (isEditMode && sharePointLineItems && sharePointLineItems.length > 0) {
+      console.log('Loading line items:', sharePointLineItems);
+      
+      const transformedLineItems = sharePointLineItems.map(item => ({
+        id: item.id || Date.now() + Math.random(),
+        partId: item.partId || '',
+        partData: item.partData || null,
+        quantity: Number(item.quantity) || 1,
+        unitPrice: Number(item.unitPrice) || 0,
+        total: (Number(item.quantity) || 1) * (Number(item.unitPrice) || 0)
+      }));
+      
+      console.log('Transformed line items:', transformedLineItems);
+      setLineItems(transformedLineItems);
+    }
+  }, [isEditMode, sharePointLineItems]);
+
+  // 5. TOTALS: Recalculate total when line items change
+  useEffect(() => {
+    const subtotal = lineItems.reduce((sum, item) => {
+      const itemTotal = parseFloat(item.total) || 0;
+      return sum + (isNaN(itemTotal) ? 0 : itemTotal);
+    }, 0);
+    
+    setFormData(prev => ({
+      ...prev,
+      totalAmount: isNaN(subtotal) ? 0 : subtotal
+    }));
+  }, [lineItems]);
+
+  // 6. DEBUG: Log state changes in development
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('=== INVOICE FORM STATE ===');
+      console.log('isEditMode:', isEditMode);
+      console.log('formData:', formData);
+      console.log('lineItems:', lineItems);
+      console.log('buyers available:', buyers.length);
+      console.log('========================');
+    }
+  }, [isEditMode, formData, lineItems, buyers]);
+
+  // =================================================================
+  // HELPER FUNCTIONS
+  // =================================================================
   const formatCurrency = useCallback((amount) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -136,12 +221,21 @@ const InvoiceForm = () => {
     }).format(amount)
   }, [])
 
-  const calculateTotals = () => {
-    const subtotal = lineItems.reduce((sum, item) => sum + (item.total || 0), 0)
-    const tax = 0
-    const total = subtotal + tax
-    return { subtotal, tax, total }
-  }
+  const calculateTotals = useCallback(() => {
+    const subtotal = lineItems.reduce((sum, item) => {
+      const itemTotal = parseFloat(item.total) || 0;
+      return sum + (isNaN(itemTotal) ? 0 : itemTotal);
+    }, 0);
+    
+    const tax = 0; // Add tax calculation if needed
+    const total = subtotal + tax;
+    
+    return {
+      subtotal: isNaN(subtotal) ? 0 : subtotal,
+      tax: isNaN(tax) ? 0 : tax,
+      total: isNaN(total) ? 0 : total
+    };
+  }, [lineItems]);
 
   // =================================================================
   // EVENT HANDLERS
@@ -200,46 +294,71 @@ const InvoiceForm = () => {
 
   const updateLineItem = useCallback((index, field, value) => {
     setLineItems(prev => {
-      const updated = [...prev]
+      const updated = [...prev];
+      
+      // Ensure the item exists
+      if (!updated[index]) {
+        console.warn(`Line item at index ${index} does not exist`);
+        return prev;
+      }
+      
+      // Update the field
       updated[index] = {
         ...updated[index],
         [field]: value
-      }
+      };
 
+      // Recalculate total when quantity or price changes
       if (field === 'quantity' || field === 'unitPrice') {
-        const quantity = field === 'quantity' ? parseFloat(value) || 0 : updated[index].quantity
-        const unitPrice = field === 'unitPrice' ? parseFloat(value) || 0 : updated[index].unitPrice
-        updated[index].total = quantity * unitPrice
+        const currentItem = updated[index];
+        
+        // Parse values with proper fallbacks
+        const quantity = field === 'quantity' 
+          ? parseFloat(value) || 0 
+          : parseFloat(currentItem.quantity) || 0;
+          
+        const unitPrice = field === 'unitPrice' 
+          ? parseFloat(value) || 0 
+          : parseFloat(currentItem.unitPrice) || 0;
+        
+        // Calculate total with validation
+        const calculatedTotal = quantity * unitPrice;
+        updated[index].total = isNaN(calculatedTotal) ? 0 : calculatedTotal;
+        
+        console.log(`Calculation for item ${index}:`, {
+          field,
+          value,
+          quantity,
+          unitPrice,
+          total: updated[index].total
+        });
       }
 
-      return updated
-    })
-  }, [])
+      return updated;
+    });
+  }, []);
 
   const selectPartForLineItem = useCallback((index, part) => {
     setLineItems(prev => {
-      const updated = [...prev]
-      const currentQuantity = updated[index]?.quantity || 1
+      const updated = [...prev];
+      const currentQuantity = parseFloat(updated[index]?.quantity) || 1;
+      const partUnitPrice = parseFloat(part.unitPrice) || 0;
       
       updated[index] = {
         ...updated[index],
         partId: part.partId,
         partData: part,
-        unitPrice: part.unitPrice,
-        total: currentQuantity * part.unitPrice
-      }
+        unitPrice: partUnitPrice,
+        total: currentQuantity * partUnitPrice
+      };
       
-      return updated
-    })
+      return updated;
+    });
     
-    setShowPartDropdown(false)
-    setPartSearchTerm('')
-    setActiveLineItemIndex(null)
-  }, [])
-
-  const removeLineItem = useCallback((index) => {
-    setLineItems(prev => prev.filter((_, i) => i !== index))
-  }, [])
+    setShowPartDropdown(false);
+    setPartSearchTerm('');
+    setActiveLineItemIndex(null);
+  }, []);
 
   // =================================================================
   // VALIDATION
@@ -787,7 +906,7 @@ const InvoiceForm = () => {
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex flex-col sm:flex-row gap-4 justify-between">
             <div className="flex flex-col sm:flex-row gap-4">
-              {/* Save as Draft */}
+              {/* Save Button - Conditional Text Based on Status */}
               <button
                 type="submit"
                 disabled={saving}
@@ -801,7 +920,7 @@ const InvoiceForm = () => {
                 ) : (
                   <>
                     <Save className="h-4 w-4 mr-2" />
-                    Save Draft
+                    {formData.status === 'Finalized' ? 'Update Invoice' : 'Save Draft'}
                   </>
                 )}
               </button>
