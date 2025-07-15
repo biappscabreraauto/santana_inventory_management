@@ -754,8 +754,13 @@ const PartsTable = () => {
 // PART TABLE ROW COMPONENT - HYBRID SOLUTION
 // =================================================================
 const PartTableRow = ({ part, isSelected, onSelect, showFamily = true }) => {
-  const inventoryStatus = getInventoryStatus(part.inventoryOnHand)
-  
+  // Move function definitions BEFORE they are used
+  const getInventoryStatus = (quantity) => {
+    if (quantity === 0) return { text: 'Out of Stock', color: 'bg-red-100 text-red-800', icon: '🔴' }
+    if (quantity <= 5) return { text: 'Low Stock', color: 'bg-yellow-100 text-yellow-800', icon: '🟡' }
+    return { text: 'In Stock', color: 'bg-green-100 text-green-800', icon: '🟢' }
+  }
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -763,11 +768,8 @@ const PartTableRow = ({ part, isSelected, onSelect, showFamily = true }) => {
     }).format(amount)
   }
 
-  const getInventoryStatus = (quantity) => {
-    if (quantity === 0) return { text: 'Out of Stock', color: 'bg-red-100 text-red-800', icon: '🔴' }
-    if (quantity <= 5) return { text: 'Low Stock', color: 'bg-yellow-100 text-yellow-800', icon: '🟡' }
-    return { text: 'In Stock', color: 'bg-green-100 text-green-800', icon: '🟢' }
-  }
+  // Now we can safely call getInventoryStatus
+  const inventoryStatus = getInventoryStatus(part.inventoryOnHand)
 
   return (
     <tr
@@ -803,7 +805,8 @@ const PartTableRow = ({ part, isSelected, onSelect, showFamily = true }) => {
           <div className="text-sm">
             <div className="text-gray-900 font-medium">{part.family}</div>
             <div className="text-gray-500 text-xs">
-              {part.family === 'Unknown Family' ? 'No family assigned' : 'Automotive system'}
+              {part.family === 'Unknown Family' ? 
+                'No family assigned' : 'Automotive system'}
             </div>
           </div>
         </td>

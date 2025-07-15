@@ -1,8 +1,9 @@
 // =================================================================
-// ENHANCED PART FORM - HYBRID SOLUTION WITH FAMILY SUPPORT
+// ENHANCED PART FORM - HYBRID SOLUTION WITH DUPLICATE VALIDATION
 // =================================================================
 // HYBRID SOLUTION: Category field is now text with validation against Categories list
-// Enhanced with cascading family/category dropdowns and automatic family display
+// Enhanced with cascading family/category dropdowns, automatic family display,
+// and comprehensive duplicate Part ID prevention
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
@@ -33,6 +34,9 @@ const PartForm = () => {
   } = useCategories()
   
   const { part: sharePointPart, loading: partLoading } = usePart(isEditMode ? id : null)
+  
+  // Get all parts for duplicate validation
+  const { parts: allParts } = useParts()
 
   // =================================================================
   // STATE MANAGEMENT - HYBRID SOLUTION ENHANCED
@@ -139,7 +143,7 @@ const PartForm = () => {
   }, [selectedFamily, categoriesByFamily, categoryNames])
 
   // =================================================================
-  // EVENT HANDLERS - HYBRID SOLUTION ENHANCED
+  // EVENT HANDLERS - HYBRID SOLUTION ENHANCED WITH DUPLICATE VALIDATION
   // =================================================================
   
   const handleInputChange = (e) => {
@@ -163,8 +167,25 @@ const PartForm = () => {
 
     setTouched(prev => ({ ...prev, [name]: true }))
 
+    // Clear error when user starts typing
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }))
+    }
+
+    // REAL-TIME DUPLICATE VALIDATION for Part ID
+    if (name === 'partId' && !isEditMode && allParts && allParts.length > 0) {
+      const trimmedValue = processedValue.trim()
+      if (trimmedValue.length >= 2) {
+        const duplicatePart = allParts.find(part => 
+          part.partId.toLowerCase() === trimmedValue.toLowerCase()
+        )
+        if (duplicatePart) {
+          setErrors(prev => ({ 
+            ...prev, 
+            partId: `Part ID "${trimmedValue}" already exists. Choose a different Part ID.` 
+          }))
+        }
+      }
     }
   }
 
@@ -233,7 +254,7 @@ const PartForm = () => {
   }
 
   // =================================================================
-  // VALIDATION - HYBRID SOLUTION ENHANCED
+  // VALIDATION - HYBRID SOLUTION ENHANCED WITH DUPLICATE CHECK
   // =================================================================
   
   const validateForm = async () => {
@@ -246,6 +267,16 @@ const PartForm = () => {
       newErrors.partId = 'Part ID must be at least 2 characters'
     } else if (!/^[A-Za-z0-9\-_.]+$/.test(formData.partId)) {
       newErrors.partId = 'Part ID can only contain letters, numbers, dashes (-), underscores (_), and periods (.)'
+    } else {
+      // DUPLICATE VALIDATION: Check if Part ID already exists (only for new parts)
+      if (!isEditMode && allParts && allParts.length > 0) {
+        const duplicatePart = allParts.find(part => 
+          part.partId.toLowerCase() === formData.partId.toLowerCase().trim()
+        )
+        if (duplicatePart) {
+          newErrors.partId = `Part ID "${formData.partId}" already exists. Part IDs must be unique.`
+        }
+      }
     }
 
     // Description validation
@@ -395,6 +426,43 @@ const PartForm = () => {
     return (quantity * cost).toFixed(2)
   }
 
+  // Generate alternative Part ID suggestions when there's a duplicate
+  const getAlternativePartIds = (basePartId) => {
+    if (!allParts || !basePartId) return []
+    
+    const suggestions = []
+    const base = basePartId.trim()
+    
+    // Try adding numbers
+    for (let i = 1; i <= 5; i++) {
+      const suggestion = `${base}-${i}`
+      const exists = allParts.find(part => 
+        part.partId.toLowerCase() === suggestion.toLowerCase()
+      )
+      if (!exists) {
+        suggestions.push(suggestion)
+        if (suggestions.length >= 3) break
+      }
+    }
+    
+    // Try adding letters
+    if (suggestions.length < 3) {
+      const letters = ['A', 'B', 'C', 'X', 'Y', 'Z']
+      for (const letter of letters) {
+        const suggestion = `${base}${letter}`
+        const exists = allParts.find(part => 
+          part.partId.toLowerCase() === suggestion.toLowerCase()
+        )
+        if (!exists) {
+          suggestions.push(suggestion)
+          if (suggestions.length >= 3) break
+        }
+      }
+    }
+    
+    return suggestions.slice(0, 3)
+  }
+
   // =================================================================
   // LOADING STATE
   // =================================================================
@@ -423,13 +491,13 @@ const PartForm = () => {
           <p className="text-gray-600">
             {isEditMode 
               ? 'Update part information and inventory details'
-              : 'Add a new part to your inventory with family-based category selection'
+              : 'Add a new part to your inventory with enhanced duplicate protection'
             }
           </p>
         </div>
         
         <Link to="/parts" className="btn btn-secondary">
-          ← Back to Parts
+          Back to Parts
         </Link>
       </div>
 
@@ -465,23 +533,60 @@ const PartForm = () => {
             </h3>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Part ID */}
+              {/* Part ID with Duplicate Validation */}
               <div>
                 <label htmlFor="partId" className="block text-sm font-medium text-gray-700 mb-1">
                   Part ID *
                 </label>
-                <input
-                  type="text"
-                  id="partId"
-                  name="partId"
-                  value={formData.partId}
-                  onChange={handleInputChange}
-                  placeholder="e.g., BH001"
-                  className={`input ${errors.partId ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  disabled={isEditMode}
-                />
+                <div className="relative">
+                  <input
+                    type="text"
+                    id="partId"
+                    name="partId"
+                    value={formData.partId}
+                    onChange={handleInputChange}
+                    placeholder="e.g., BH001"
+                    className={`input pr-10 ${errors.partId ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                    disabled={isEditMode}
+                  />
+                  {/* Availability Indicator */}
+                  {!isEditMode && formData.partId.trim().length >= 2 && (
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                      {allParts && allParts.find(part => 
+                        part.partId.toLowerCase() === formData.partId.toLowerCase().trim()
+                      ) ? (
+                        <span className="text-red-500" title="Part ID already exists">❌</span>
+                      ) : (
+                        <span className="text-green-500" title="Part ID available">✅</span>
+                      )}
+                    </div>
+                  )}
+                </div>
                 {errors.partId && (
-                  <p className="mt-1 text-sm text-red-600">{errors.partId}</p>
+                  <div className="mt-1">
+                    <p className="text-sm text-red-600">{errors.partId}</p>
+                    {/* Alternative Part ID Suggestions */}
+                    {errors.partId.includes('already exists') && (
+                      <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                        <p className="text-sm text-yellow-800 font-medium mb-2">Try these available alternatives:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {getAlternativePartIds(formData.partId).map(suggestion => (
+                            <button
+                              key={suggestion}
+                              type="button"
+                              onClick={() => setFormData(prev => ({ ...prev, partId: suggestion }))}
+                              className="inline-flex items-center px-3 py-1 border border-yellow-300 rounded-full text-sm text-yellow-800 bg-yellow-100 hover:bg-yellow-200 transition-colors"
+                            >
+                              {suggestion}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!isEditMode && !errors.partId && formData.partId.trim().length >= 2 && (
+                  <p className="mt-1 text-sm text-green-600">✅ Part ID available</p>
                 )}
               </div>
 
@@ -944,22 +1049,33 @@ const PartForm = () => {
             )}
           </div>
 
-          {/* Required Fields Note & Hybrid Solution Info */}
+          {/* Required Fields Note & Enhanced Validation Info */}
           <div className="text-sm text-gray-500 pt-4 border-t border-gray-200 space-y-2">
             <p>* Required fields must be completed before saving</p>
             {isEditMode && (
-              <p>Part ID cannot be changed after creation</p>
+              <p>Part ID cannot be changed after creation to maintain data integrity</p>
+            )}
+            {!isEditMode && (
+              <p className="text-blue-600">
+                🔒 Part IDs are automatically checked for uniqueness to prevent duplicates
+              </p>
             )}
             {!isEditMode && formData.inventoryOnHand > 0 && (
               <p className="text-blue-600">
-                An initial stock transaction will be created automatically for audit tracking
+                📦 An initial stock transaction will be created automatically for audit tracking
               </p>
             )}
             {/* HYBRID SOLUTION: Information note */}
             <div className="bg-blue-50 border border-blue-200 rounded p-3 mt-4">
-              <h5 className="text-sm font-medium text-blue-900 mb-1">Hybrid Solution Active</h5>
+              <h5 className="text-sm font-medium text-blue-900 mb-1">Enhanced Validation Active</h5>
               <p className="text-sm text-blue-700">
-                Categories are validated against the master Categories list. Family information is automatically determined based on your category selection.
+                • Part IDs are validated for uniqueness across your entire inventory
+              </p>
+              <p className="text-sm text-blue-700">
+                • Categories are validated against the master Categories list
+              </p>
+              <p className="text-sm text-blue-700">
+                • Family information is automatically determined based on your category selection
               </p>
               {displayFamily && (
                 <p className="text-sm text-blue-600 mt-1">
