@@ -349,7 +349,8 @@ class SharePointService {
   }
 
   /**
-   * Get single part by ID
+   * Get single part by Part ID (Title field) - FIXED VERSION
+   * This method should replace the existing getPartById in src/services/sharepoint.js
    */
   async getPartById(accessToken, partId) {
     const cacheKey = `part_${partId}`;
@@ -361,13 +362,19 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
+        // FIXED: Use filter to find part by Title field (partId) instead of treating partId as SharePoint item ID
         const response = await graphClient
-          .api(
-            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${partId}?$expand=fields`
-          )
+          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
+          .filter(`fields/Title eq '${partId}'`)
+          .expand('fields')
+          .top(1)
           .get();
 
-        return transformSharePointItem(response, 'parts');
+        if (response.value && response.value.length > 0) {
+          return transformSharePointItem(response.value[0], 'parts');
+        }
+
+        return null;
       },
       `Get Part ${partId}`
     );
@@ -906,7 +913,8 @@ class SharePointService {
   }
 
   /**
-   * Create new invoice in SharePoint
+   * Create new invoice in SharePoint and automatically create transactions
+   * COMPLETE FIXED VERSION - includes transaction creation and proper part validation
    */
   async createInvoice(accessToken, invoiceData) {
     const graphClient = createGraphClient(accessToken);
@@ -914,15 +922,43 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        // Force status to 'Finalized' - no more drafts
+        console.log('🔍 Starting createInvoice with data:', invoiceData);
+
+        // 1. VALIDATE: Check inventory levels for each line item FIRST
+        if (invoiceData.lineItems && invoiceData.lineItems.length > 0) {
+          console.log(`📦 Validating inventory for ${invoiceData.lineItems.length} line items`);
+          
+          for (const item of invoiceData.lineItems) {
+            console.log(`🔍 Checking inventory for part: ${item.partId}`);
+            
+            // Use the fixed getPartById method (with filter)
+            const part = await this.getPartById(accessToken, item.partId);
+            if (!part) {
+              throw new Error(`Part ${item.partId} not found`);
+            }
+            
+            console.log(`📊 Part ${item.partId}: Available=${part.inventoryOnHand}, Required=${item.quantity}`);
+            
+            if (part.inventoryOnHand < item.quantity) {
+              throw new Error(
+                `Insufficient stock for ${item.partId}. Available: ${part.inventoryOnHand}, Required: ${item.quantity}`
+              );
+            }
+          }
+          console.log('✅ All inventory validations passed');
+        }
+
+        // 2. Create the invoice record with status 'Finalized'
+        console.log('📝 Creating invoice record...');
         const finalizedInvoiceData = {
           ...invoiceData,
           status: 'Finalized'
         };
 
         const sharePointData = transformToSharePoint(finalizedInvoiceData, 'invoices');
+        console.log('📄 SharePoint invoice data:', sharePointData);
 
-        const response = await graphClient
+        const invoiceResponse = await graphClient
           .api(
             `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.invoices}/items`
           )
@@ -930,93 +966,46 @@ class SharePointService {
             fields: sharePointData,
           });
 
-        return transformSharePointItem(response, 'invoices');
-      },
-      'Create Invoice'
-    );
+        const createdInvoice = transformSharePointItem(invoiceResponse, 'invoices');
+        console.log('✅ Invoice created successfully:', createdInvoice.id);
 
-    this.clearCache();
-    return result;
-  }
-
-  /**
-   * Finalize an invoice - UPDATED: Added overselling validation
-   */
-  async finalizeInvoice(accessToken, invoiceId, lineItems) {
-    const graphClient = createGraphClient(accessToken);
-
-    const result = await this.executeGraphRequest(
-      graphClient,
-      async () => {
-        // 1. VALIDATE: Check inventory levels for each line item
-        for (const item of lineItems) {
-          const part = await this.getPartById(accessToken, item.partId);
-          if (!part) {
-            throw new Error(`Part ${item.partId} not found`);
-          }
-          if (part.inventoryOnHand < item.quantity) {
-            throw new Error(
-              `Insufficient stock for ${item.partId}. Available: ${part.inventoryOnHand}, Required: ${item.quantity}`
-            );
-          }
-        }
-
-        // 2. Create "Out" transactions for each line item
+        // 3. Create "Out (Sold)" transactions for each line item
         const transactions = [];
-        for (const item of lineItems) {
-          const transactionData = {
-            partId: item.partId,
-            movementType: 'Out (Sold)',
-            quantity: item.quantity,
-            unitCost: item.unitCost || 0,
-            unitPrice: item.unitPrice || 0,
-            invoice: invoiceId,
-            buyer: item.buyer,
-            notes: `Sale - Invoice ${invoiceId}`
-          };
-
-          const transaction = await this.createTransaction(accessToken, transactionData);
-          transactions.push(transaction);
-        }
-
-        // 3. Update inventory quantities
-        for (const item of lineItems) {
-          const part = await this.getPartById(accessToken, item.partId);
-          const newQuantity = part.inventoryOnHand - item.quantity;
+        if (invoiceData.lineItems && invoiceData.lineItems.length > 0) {
+          console.log(`🔄 Creating ${invoiceData.lineItems.length} transactions...`);
           
-          await this.updatePart(accessToken, item.partId, {
-            inventoryOnHand: newQuantity
-          });
+          for (const item of invoiceData.lineItems) {
+            const transactionData = {
+              partId: item.partId,
+              movementType: 'Out (Sold)',
+              quantity: item.quantity,
+              unitCost: item.unitCost || 0,
+              unitPrice: item.unitPrice || 0,
+              invoice: createdInvoice.invoiceNumber || createdInvoice.id.toString(),
+              buyer: invoiceData.buyer || '',
+              notes: `Sale - Invoice ${createdInvoice.invoiceNumber || createdInvoice.id}`
+            };
+
+            console.log('📝 Creating transaction:', transactionData);
+            
+            // Create the transaction (this also updates part inventory via createTransaction method)
+            const transaction = await this.createTransaction(accessToken, transactionData);
+            transactions.push(transaction);
+            
+            console.log('✅ Transaction created:', transaction.id);
+          }
         }
 
-        // 4. Calculate total amount
-        const totalAmount = lineItems.reduce((sum, item) => {
-          return sum + (item.quantity * (item.unitPrice || 0));
-        }, 0);
-
-        // 5. Update invoice status to "Finalized"
-        const sharePointData = transformToSharePoint({
-          status: 'Finalized',
-          totalAmount: totalAmount
-        }, 'invoices');
-
-        const response = await graphClient
-          .api(
-            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.invoices}/items/${invoiceId}`
-          )
-          .patch({
-            fields: sharePointData,
-          });
+        console.log(`✅ Successfully created invoice with ${transactions.length} transactions`);
 
         return {
-          invoice: transformSharePointItem(response, 'invoices'),
+          ...createdInvoice,
           transactions
         };
       },
-      `Finalize Invoice ${invoiceId}`
+      'Create Invoice with Transactions'
     );
 
-    this.clearCache(`invoice_${invoiceId}`);
     this.clearCache();
     return result;
   }
