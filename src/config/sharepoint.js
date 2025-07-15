@@ -1,8 +1,9 @@
 // =================================================================
-// SHAREPOINT CONFIGURATION
+// SHAREPOINT CONFIGURATION - HYBRID SOLUTION IMPLEMENTATION
 // =================================================================
-// Central configuration for SharePoint integration
-// This file defines all SharePoint-related constants and mappings
+// Central configuration for SharePoint integration with enhanced hybrid solution support
+// HYBRID SOLUTION: Category field converted from Lookup to Text field to work around
+// Microsoft Graph API bug with custom lookup fields
 
 // =================================================================
 // ENVIRONMENT CONFIGURATION
@@ -28,6 +29,7 @@ export const SHAREPOINT_CONFIG = {
   cache: {
     defaultTimeout: 5 * 60 * 1000, // 5 minutes
     categoriesTimeout: 15 * 60 * 1000, // 15 minutes (categories change less frequently)
+    categoryMapTimeout: 15 * 60 * 1000, // 15 minutes for category map
     maxCacheSize: 100 // Maximum number of cached items
   },
   
@@ -36,21 +38,32 @@ export const SHAREPOINT_CONFIG = {
     defaultPageSize: 100,
     maxPageSize: 500,
     defaultOrderBy: 'Created desc'
+  },
+
+  // HYBRID SOLUTION: Enhanced configuration
+  hybridSolution: {
+    enabled: true,
+    categoryValidation: true,
+    autoFamilyLookup: true,
+    cacheStrategy: 'aggressive', // 'conservative' | 'aggressive'
+    fallbackCategory: 'Uncategorized'
   }
 }
 
 // =================================================================
-// SHAREPOINT LIST SCHEMA DEFINITIONS
+// SHAREPOINT LIST SCHEMA DEFINITIONS - HYBRID SOLUTION ENHANCED
 // =================================================================
 
 /**
- * Parts list schema mapping
+ * Parts list schema mapping - HYBRID SOLUTION UPDATED
+ * Category field changed from Lookup to Text field
  */
 export const PARTS_SCHEMA = {
   // SharePoint internal names to friendly names
   fieldMapping: {
     'Title': 'partId',
     'Description': 'description',
+    // HYBRID SOLUTION: Category is now a simple text field
     'Category': 'category',
     'InventoryOnHand': 'inventoryOnHand',
     'UnitCost': 'unitCost',
@@ -58,11 +71,12 @@ export const PARTS_SCHEMA = {
     'Status': 'status'
   },
   
-  // Field types for validation
+  // Field types for validation - HYBRID SOLUTION UPDATED
   fieldTypes: {
     partId: 'string',
     description: 'string',
-    category: 'lookup',
+    // HYBRID SOLUTION: Changed from 'lookup' to 'text'
+    category: 'text',
     inventoryOnHand: 'number',
     unitCost: 'currency',
     unitPrice: 'currency',
@@ -80,12 +94,22 @@ export const PARTS_SCHEMA = {
   // Fields that can be indexed for search
   searchableFields: ['partId', 'description', 'category'],
   
-  // Display fields for lists
-  displayFields: ['partId', 'description', 'category', 'inventoryOnHand', 'unitPrice', 'status']
+  // Display fields for lists - HYBRID SOLUTION: Added family support
+  displayFields: ['partId', 'description', 'category', 'family', 'inventoryOnHand', 'unitPrice', 'status'],
+
+  // HYBRID SOLUTION: Enhanced validation rules
+  validation: {
+    category: {
+      required: true,
+      validateAgainstList: true,
+      autoCorrect: false,
+      caseSensitive: false
+    }
+  }
 }
 
 /**
- * Categories list schema mapping
+ * Categories list schema mapping - HYBRID SOLUTION ENHANCED
  */
 export const CATEGORIES_SCHEMA = {
   fieldMapping: {
@@ -100,18 +124,37 @@ export const CATEGORIES_SCHEMA = {
   
   choices: {
     family: [
+      'Belt Drive',
+      'Body & Lamp Assembly',
       'Brake & Wheel Hub',
-      'Engine & Transmission',
-      'Electrical & Lighting',
-      'Suspension & Steering',
-      'Body & Interior',
-      'Filters & Fluids'
+      'Cooling System',
+      'Drivetrain',
+      'Electrical',
+      'Electrical-Switch & Relay',
+      'Engine',
+      'Exhaust & Emission',
+      'Fuel & Air',
+      'Heat & Air Conditioning',
+      'Ignition',
+      'Interior',
+      'Steering',
+      'Suspension',
+      'Transmission-Automatic',
+      'Transmission-Manual'
     ]
   },
   
   requiredFields: ['category'],
   searchableFields: ['category', 'family'],
-  displayFields: ['category', 'family']
+  displayFields: ['category', 'family'],
+
+  // HYBRID SOLUTION: Category management settings
+  management: {
+    allowDuplicates: false,
+    autoCreateFamily: false,
+    sortByFamily: true,
+    groupByFamily: true
+  }
 }
 
 /**
@@ -136,7 +179,7 @@ export const BUYERS_SCHEMA = {
 }
 
 /**
- * Transactions list schema mapping
+ * Transactions list schema mapping - HYBRID SOLUTION READY
  */
 export const TRANSACTIONS_SCHEMA = {
   fieldMapping: {
@@ -150,11 +193,13 @@ export const TRANSACTIONS_SCHEMA = {
   },
   
   fieldTypes: {
+    // May need to convert to text in future if Graph API issues persist
     partId: 'lookup',
     movementType: 'choice',
     quantity: 'number',
     unitCost: 'currency',
     unitPrice: 'currency',
+    // May need to convert to text in future if Graph API issues persist
     invoice: 'lookup',
     notes: 'multiline'
   },
@@ -244,11 +289,12 @@ export const getGraphEndpoints = (siteId) => ({
 })
 
 // =================================================================
-// ODATA QUERY BUILDERS
+// ODATA QUERY BUILDERS - HYBRID SOLUTION ENHANCED
 // =================================================================
 
 /**
  * Build OData filter expressions for SharePoint queries
+ * HYBRID SOLUTION: Enhanced with text-based category filtering
  */
 export const ODataFilters = {
   /**
@@ -259,11 +305,25 @@ export const ODataFilters = {
   partsByStatus: (status) => `fields/Status eq '${status}'`,
   
   /**
-   * Filter parts by category
+   * Filter parts by category - HYBRID SOLUTION: Text field filtering
    * @param {string} category - Category to filter by
    * @returns {string} OData filter expression
    */
   partsByCategory: (category) => `fields/Category eq '${category}'`,
+
+  /**
+   * Filter parts by family - HYBRID SOLUTION: Requires category lookup
+   * @param {string} family - Family to filter by
+   * @param {Array} categoriesInFamily - Array of category names in the family
+   * @returns {string} OData filter expression
+   */
+  partsByFamily: (family, categoriesInFamily) => {
+    if (!categoriesInFamily || categoriesInFamily.length === 0) {
+      return "fields/Category eq 'NonExistentCategory'" // Return no results
+    }
+    const categoryFilters = categoriesInFamily.map(cat => `fields/Category eq '${cat}'`).join(' or ')
+    return `(${categoryFilters})`
+  },
   
   /**
    * Filter parts with low inventory
@@ -302,12 +362,24 @@ export const ODataFilters = {
     `fields/Created ge '${startDate}' and fields/Created le '${endDate}'`,
   
   /**
-   * Search parts by text (part ID or description)
+   * Search parts by text - HYBRID SOLUTION: Enhanced search including category
    * @param {string} searchTerm - Search term
    * @returns {string} OData filter expression
    */
   searchParts: (searchTerm) => 
-    `(substringof('${searchTerm}', fields/Title) or substringof('${searchTerm}', fields/Description))`
+    `(substringof('${searchTerm}', fields/Title) or substringof('${searchTerm}', fields/Description) or substringof('${searchTerm}', fields/Category))`,
+
+  /**
+   * HYBRID SOLUTION: Search parts within specific family
+   * @param {string} searchTerm - Search term
+   * @param {Array} categoriesInFamily - Categories in the family
+   * @returns {string} OData filter expression
+   */
+  searchPartsInFamily: (searchTerm, categoriesInFamily) => {
+    const searchFilter = ODataFilters.searchParts(searchTerm)
+    const familyFilter = ODataFilters.partsByFamily('', categoriesInFamily)
+    return `(${searchFilter}) and (${familyFilter})`
+  }
 }
 
 /**
@@ -320,9 +392,11 @@ export const ODataOrderBy = {
   partsByModified: 'fields/Modified desc',
   partsByInventory: 'fields/InventoryOnHand desc',
   partsByPrice: 'fields/UnitPrice desc',
+  partsByCategory: 'fields/Category', // HYBRID SOLUTION: Direct text field ordering
   
   // Categories ordering
   categoriesByTitle: 'fields/Title',
+  categoriesByFamily: 'fields/Family',
   
   // Transactions ordering
   transactionsByCreated: 'fields/Created desc',
@@ -335,11 +409,12 @@ export const ODataOrderBy = {
 }
 
 // =================================================================
-// VALIDATION RULES
+// VALIDATION RULES - HYBRID SOLUTION ENHANCED
 // =================================================================
 
 /**
  * Validation rules for SharePoint data
+ * HYBRID SOLUTION: Enhanced category validation
  */
 export const VALIDATION_RULES = {
   parts: {
@@ -347,8 +422,8 @@ export const VALIDATION_RULES = {
       required: true,
       minLength: 2,
       maxLength: 50,
-      pattern: /^[A-Za-z0-9_-]+$/,
-      message: 'Part ID must be 2-50 characters, letters, numbers, dashes and underscores only'
+      pattern: /^[A-Za-z0-9_.-]+$/,
+      message: 'Part ID must be 2-50 characters, letters, numbers, dashes, underscores, and periods only'
     },
     description: {
       required: true,
@@ -356,9 +431,13 @@ export const VALIDATION_RULES = {
       maxLength: 255,
       message: 'Description must be 5-255 characters'
     },
+    // HYBRID SOLUTION: Enhanced category validation
     category: {
       required: true,
-      message: 'Category is required'
+      validateAgainstList: true,
+      caseSensitive: false,
+      trimWhitespace: true,
+      message: 'Category is required and must be selected from the valid categories list'
     },
     inventoryOnHand: {
       type: 'number',
@@ -384,7 +463,14 @@ export const VALIDATION_RULES = {
       required: true,
       minLength: 2,
       maxLength: 100,
-      message: 'Category name must be 2-100 characters'
+      unique: true,
+      trimWhitespace: true,
+      message: 'Category name must be 2-100 characters and unique'
+    },
+    family: {
+      required: true,
+      validateAgainstChoices: true,
+      message: 'Family must be selected from the available options'
     }
   },
   
@@ -408,16 +494,113 @@ export const VALIDATION_RULES = {
 }
 
 // =================================================================
+// HYBRID SOLUTION UTILITIES
+// =================================================================
+
+/**
+ * HYBRID SOLUTION: Category management utilities
+ */
+export const CATEGORY_UTILS = {
+  /**
+   * Default fallback category for invalid entries
+   */
+  FALLBACK_CATEGORY: 'Uncategorized',
+
+  /**
+   * Normalize category name for comparison
+   * @param {string} category - Category name to normalize
+   * @returns {string} Normalized category name
+   */
+  normalizeCategory: (category) => {
+    if (!category) return '';
+    return category.trim();
+  },
+
+  /**
+   * Validate category name format
+   * @param {string} category - Category name to validate
+   * @returns {boolean} Whether the category name is valid format
+   */
+  isValidCategoryFormat: (category) => {
+    if (!category || typeof category !== 'string') return false;
+    const normalized = CATEGORY_UTILS.normalizeCategory(category);
+    return normalized.length >= 2 && normalized.length <= 100;
+  },
+
+  /**
+   * Generate category validation error message
+   * @param {string} category - Invalid category name
+   * @param {Array} validCategories - Array of valid category names
+   * @returns {string} Error message
+   */
+  getCategoryValidationError: (category, validCategories = []) => {
+    if (!category) return 'Category is required';
+    if (!CATEGORY_UTILS.isValidCategoryFormat(category)) {
+      return 'Category name must be between 2-100 characters';
+    }
+    if (validCategories.length > 0 && !validCategories.includes(category)) {
+      return `Invalid category "${category}". Please select from the available categories.`;
+    }
+    return '';
+  }
+}
+
+/**
+ * HYBRID SOLUTION: Family management utilities
+ */
+export const FAMILY_UTILS = {
+  /**
+   * Get all available families from choices
+   * @returns {Array} Array of family names
+   */
+  getAvailableFamilies: () => {
+    return [...CATEGORIES_SCHEMA.choices.family];
+  },
+
+  /**
+   * Group categories by family
+   * @param {Array} categories - Array of category objects
+   * @returns {Object} Object with family names as keys and arrays of categories as values
+   */
+  groupCategoriesByFamily: (categories) => {
+    const grouped = {};
+    
+    categories.forEach(cat => {
+      const family = cat.family || 'Uncategorized';
+      if (!grouped[family]) {
+        grouped[family] = [];
+      }
+      grouped[family].push(cat);
+    });
+    
+    return grouped;
+  },
+
+  /**
+   * Get categories for a specific family
+   * @param {Array} categories - Array of all categories
+   * @param {string} familyName - Family name to filter by
+   * @returns {Array} Array of categories in the specified family
+   */
+  getCategoriesInFamily: (categories, familyName) => {
+    return categories.filter(cat => cat.family === familyName);
+  }
+}
+
+// =================================================================
 // DEVELOPMENT HELPERS
 // =================================================================
 
 /**
  * Validate SharePoint configuration
+ * HYBRID SOLUTION: Enhanced validation with hybrid solution checks
  * @returns {Object} Validation results
  */
 export const validateSharePointConfig = () => {
   const issues = []
+  const warnings = []
   
+  // Basic configuration validation
   if (!SHAREPOINT_CONFIG.siteUrl) {
     issues.push('VITE_SHAREPOINT_SITE_URL not configured')
   }
@@ -436,22 +619,94 @@ export const validateSharePointConfig = () => {
       issues.push(`List name for ${key} not configured`)
     }
   })
+
+  // HYBRID SOLUTION: Validate hybrid solution configuration
+  if (!SHAREPOINT_CONFIG.hybridSolution.enabled) {
+    warnings.push('Hybrid solution is disabled - may cause issues with category fields')
+  }
+
+  // Validate Parts schema for hybrid solution
+  if (PARTS_SCHEMA.fieldTypes.category !== 'text') {
+    warnings.push('Parts category field type should be "text" for hybrid solution')
+  }
+
+  // Validate Categories schema
+  if (!CATEGORIES_SCHEMA.choices.family || CATEGORIES_SCHEMA.choices.family.length === 0) {
+    warnings.push('No family choices configured for categories')
+  }
   
   return {
     isValid: issues.length === 0,
-    issues
+    issues,
+    warnings,
+    hybridSolutionStatus: {
+      enabled: SHAREPOINT_CONFIG.hybridSolution.enabled,
+      categoryValidation: SHAREPOINT_CONFIG.hybridSolution.categoryValidation,
+      autoFamilyLookup: SHAREPOINT_CONFIG.hybridSolution.autoFamilyLookup
+    }
   }
 }
 
+/**
+ * HYBRID SOLUTION: Get hybrid solution status
+ * @returns {Object} Current hybrid solution configuration
+ */
+export const getHybridSolutionStatus = () => {
+  return {
+    enabled: SHAREPOINT_CONFIG.hybridSolution.enabled,
+    categoryFieldType: PARTS_SCHEMA.fieldTypes.category,
+    categoryValidation: SHAREPOINT_CONFIG.hybridSolution.categoryValidation,
+    autoFamilyLookup: SHAREPOINT_CONFIG.hybridSolution.autoFamilyLookup,
+    cacheStrategy: SHAREPOINT_CONFIG.hybridSolution.cacheStrategy,
+    fallbackCategory: SHAREPOINT_CONFIG.hybridSolution.fallbackCategory,
+    availableFamilies: FAMILY_UTILS.getAvailableFamilies(),
+    configurationValid: validateSharePointConfig().isValid
+  }
+}
+
+// =================================================================
+// DEVELOPMENT LOGGING
+// =================================================================
+
 // Log configuration status in development
-if (import.meta.env.VITE_DEV_MODE === 'true') {
+if (import.meta.env.VITE_DEBUG_MODE === 'true') {
   const validation = validateSharePointConfig()
+  const hybridStatus = getHybridSolutionStatus()
   
   if (validation.isValid) {
     console.log('✅ SharePoint configuration is valid')
   } else {
     console.warn('⚠️ SharePoint configuration issues:', validation.issues)
   }
+
+  if (validation.warnings.length > 0) {
+    console.warn('⚠️ SharePoint configuration warnings:', validation.warnings)
+  }
   
   console.log('📋 SharePoint Lists:', SHAREPOINT_CONFIG.lists)
+  console.log('🔀 Hybrid Solution Status:', hybridStatus)
+  
+  // HYBRID SOLUTION: Log category configuration
+  console.log('📂 Available Families:', FAMILY_UTILS.getAvailableFamilies())
+  console.log('🏷️ Category Field Type:', PARTS_SCHEMA.fieldTypes.category)
+}
+
+// =================================================================
+// EXPORTS
+// =================================================================
+export default {
+  SHAREPOINT_CONFIG,
+  PARTS_SCHEMA,
+  CATEGORIES_SCHEMA,
+  BUYERS_SCHEMA,
+  TRANSACTIONS_SCHEMA,
+  INVOICES_SCHEMA,
+  getGraphEndpoints,
+  ODataFilters,
+  ODataOrderBy,
+  VALIDATION_RULES,
+  CATEGORY_UTILS,
+  FAMILY_UTILS,
+  validateSharePointConfig,
+  getHybridSolutionStatus
 }

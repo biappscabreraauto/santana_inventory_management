@@ -1,10 +1,10 @@
 // =================================================================
-// ENHANCED PART FORM - AUTOMATIC TRANSACTION CREATION
+// ENHANCED PART FORM - HYBRID SOLUTION WITH FAMILY SUPPORT
 // =================================================================
-// When creating a new part with inventory > 0, automatically create
-// an "Initial Stock" transaction for proper audit trail
+// HYBRID SOLUTION: Category field is now text with validation against Categories list
+// Enhanced with cascading family/category dropdowns and automatic family display
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
@@ -20,11 +20,23 @@ const PartForm = () => {
   const isEditMode = Boolean(id)
   const pageTitle = isEditMode ? 'Edit Part' : 'Add New Part'
 
-  // SharePoint hooks
-  const { categoryNames: categories, loading: categoriesLoading } = useCategories()
+  // =================================================================
+  // SHAREPOINT HOOKS - HYBRID SOLUTION ENHANCED
+  // =================================================================
+  const { 
+    categories,
+    categoryNames, 
+    categoriesByFamily,
+    getFamilyByCategory,
+    validateCategory,
+    loading: categoriesLoading 
+  } = useCategories()
+  
   const { part: sharePointPart, loading: partLoading } = usePart(isEditMode ? id : null)
 
-  // State management
+  // =================================================================
+  // STATE MANAGEMENT - HYBRID SOLUTION ENHANCED
+  // =================================================================
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
@@ -39,7 +51,12 @@ const PartForm = () => {
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
 
-  // NEW: Transaction details for initial stock
+  // HYBRID SOLUTION: Family management state
+  const [selectedFamily, setSelectedFamily] = useState('')
+  const [displayFamily, setDisplayFamily] = useState('')
+  const [showFamilyFirst, setShowFamilyFirst] = useState(false)
+
+  // Transaction details for initial stock
   const [showTransactionDetails, setShowTransactionDetails] = useState(false)
   const [transactionData, setTransactionData] = useState({
     supplier: '',
@@ -47,14 +64,26 @@ const PartForm = () => {
     receiptDate: new Date().toISOString().split('T')[0]
   })
 
-  // Data loading
+  // =================================================================
+  // DATA LOADING AND INITIALIZATION
+  // =================================================================
   useEffect(() => {
     if (isEditMode && sharePointPart) {
       loadPartData(sharePointPart)
     }
   }, [isEditMode, sharePointPart])
 
-  // NEW: Show transaction details when inventory > 0
+  // HYBRID SOLUTION: Auto-update family when category changes
+  useEffect(() => {
+    if (formData.category && categories.length > 0) {
+      const family = getFamilyByCategory(formData.category)
+      setDisplayFamily(family || 'Unknown Family')
+    } else {
+      setDisplayFamily('')
+    }
+  }, [formData.category, getFamilyByCategory, categories])
+
+  // Show transaction details when inventory > 0 for new parts
   useEffect(() => {
     if (!isEditMode && formData.inventoryOnHand > 0) {
       setShowTransactionDetails(true)
@@ -69,12 +98,20 @@ const PartForm = () => {
         setFormData({
           partId: partData.partId || '',
           description: partData.description || '',
+          // HYBRID SOLUTION: Category is now direct text value
           category: partData.category || '',
           inventoryOnHand: partData.inventoryOnHand || 0,
           unitCost: partData.unitCost?.toString() || '',
           unitPrice: partData.unitPrice?.toString() || '',
           status: partData.status || 'Active'
         })
+
+        // HYBRID SOLUTION: Set family based on category
+        if (partData.category) {
+          const family = getFamilyByCategory(partData.category)
+          setDisplayFamily(family || 'Unknown Family')
+          setSelectedFamily(family || '')
+        }
       }
     } catch (err) {
       console.error('Error loading part data:', err)
@@ -84,7 +121,27 @@ const PartForm = () => {
 
   const isLoading = loading || categoriesLoading || partLoading
 
-  // Event handlers
+  // =================================================================
+  // HYBRID SOLUTION: ENHANCED DROPDOWN DATA
+  // =================================================================
+  
+  // Get available families for dropdown
+  const availableFamilies = useMemo(() => {
+    return Object.keys(categoriesByFamily).sort()
+  }, [categoriesByFamily])
+
+  // Get categories for selected family
+  const categoriesInSelectedFamily = useMemo(() => {
+    if (!selectedFamily || !categoriesByFamily[selectedFamily]) {
+      return categoryNames // Show all categories if no family selected
+    }
+    return categoriesByFamily[selectedFamily].map(cat => cat.category).sort()
+  }, [selectedFamily, categoriesByFamily, categoryNames])
+
+  // =================================================================
+  // EVENT HANDLERS - HYBRID SOLUTION ENHANCED
+  // =================================================================
+  
   const handleInputChange = (e) => {
     const { name, value, type } = e.target
     
@@ -111,7 +168,54 @@ const PartForm = () => {
     }
   }
 
-  // NEW: Handle transaction data changes
+  // HYBRID SOLUTION: Handle family selection (filters categories)
+  const handleFamilyChange = (e) => {
+    const family = e.target.value
+    setSelectedFamily(family)
+    
+    // Clear category when family changes (except if showing family first)
+    if (!showFamilyFirst) {
+      setFormData(prev => ({ ...prev, category: '' }))
+      setDisplayFamily('')
+    }
+  }
+
+  // HYBRID SOLUTION: Handle category selection with validation
+  const handleCategoryChange = async (e) => {
+    const category = e.target.value
+    
+    // Update form data
+    setFormData(prev => ({ ...prev, category }))
+    setTouched(prev => ({ ...prev, category: true }))
+
+    // Clear category error
+    if (errors.category) {
+      setErrors(prev => ({ ...prev, category: '' }))
+    }
+
+    // HYBRID SOLUTION: Validate category against Categories list
+    if (category && categories.length > 0) {
+      try {
+        const isValid = await validateCategory(category)
+        if (!isValid) {
+          setErrors(prev => ({ 
+            ...prev, 
+            category: `"${category}" is not a valid category. Please select from the dropdown.` 
+          }))
+        } else {
+          // Auto-set family when valid category is selected
+          const family = getFamilyByCategory(category)
+          if (family && family !== selectedFamily) {
+            setSelectedFamily(family)
+          }
+        }
+      } catch (err) {
+        console.error('Category validation error:', err)
+      }
+    }
+  }
+
+  // Handle transaction data changes
   const handleTransactionChange = (e) => {
     const { name, value } = e.target
     setTransactionData(prev => ({
@@ -120,35 +224,57 @@ const PartForm = () => {
     }))
   }
 
-  // Enhanced validation
-  const validateForm = () => {
+  // Toggle between family-first and category-first selection modes
+  const toggleSelectionMode = () => {
+    setShowFamilyFirst(!showFamilyFirst)
+    setSelectedFamily('')
+    setFormData(prev => ({ ...prev, category: '' }))
+    setDisplayFamily('')
+  }
+
+  // =================================================================
+  // VALIDATION - HYBRID SOLUTION ENHANCED
+  // =================================================================
+  
+  const validateForm = async () => {
     const newErrors = {}
 
-    // Part ID validation - FIXED to allow dashes and common part number characters
+    // Part ID validation
     if (!formData.partId.trim()) {
       newErrors.partId = 'Part ID is required'
     } else if (formData.partId.length < 2) {
       newErrors.partId = 'Part ID must be at least 2 characters'
     } else if (!/^[A-Za-z0-9\-_.]+$/.test(formData.partId)) {
-      // Updated regex to allow: letters, numbers, dashes, underscores, and periods
       newErrors.partId = 'Part ID can only contain letters, numbers, dashes (-), underscores (_), and periods (.)'
     }
 
+    // Description validation
     if (!formData.description.trim()) {
       newErrors.description = 'Description is required'
     } else if (formData.description.length < 5) {
       newErrors.description = 'Description must be at least 5 characters'
     }
 
-    // FIXED: Check for empty string category
+    // HYBRID SOLUTION: Enhanced category validation
     if (!formData.category || formData.category.trim() === '') {
       newErrors.category = 'Category is required'
+    } else {
+      try {
+        const isValidCategory = await validateCategory(formData.category)
+        if (!isValidCategory) {
+          newErrors.category = `"${formData.category}" is not a valid category. Please select from the available categories.`
+        }
+      } catch (err) {
+        newErrors.category = 'Unable to validate category. Please check your selection.'
+      }
     }
 
+    // Inventory validation
     if (formData.inventoryOnHand < 0) {
       newErrors.inventoryOnHand = 'Inventory cannot be negative'
     }
 
+    // Cost validation
     if (!formData.unitCost || formData.unitCost === '') {
       newErrors.unitCost = 'Unit cost is required'
     } else {
@@ -158,6 +284,7 @@ const PartForm = () => {
       }
     }
 
+    // Price validation
     if (!formData.unitPrice || formData.unitPrice === '') {
       newErrors.unitPrice = 'Unit price is required'
     } else {
@@ -182,11 +309,15 @@ const PartForm = () => {
     return Object.keys(newErrors).length === 0
   }
 
-  // Enhanced form submission
+  // =================================================================
+  // FORM SUBMISSION - HYBRID SOLUTION READY
+  // =================================================================
+  
   const handleSubmit = async (e) => {
     e.preventDefault()
     
-    if (!validateForm()) {
+    const isValid = await validateForm()
+    if (!isValid) {
       error('Please fix the validation errors before submitting')
       return
     }
@@ -197,35 +328,26 @@ const PartForm = () => {
       // Convert string values to numbers for submission
       const submissionData = {
         ...formData,
+        // HYBRID SOLUTION: Category submitted as direct text value
+        category: formData.category.trim(),
         unitCost: parseFloat(formData.unitCost) || 0,
         unitPrice: parseFloat(formData.unitPrice) || 0
       }
 
       console.log('Saving part data:', submissionData)
 
-      // FIXED: Actually call the SharePoint service
       if (isEditMode) {
-        // Update existing part (updatePart expects partId as first parameter)
         await updatePart(id, submissionData)
         success('Part updated successfully!')
       } else {
-        // Create new part
         await createPart(submissionData)
         
-        // Check if we need to create initial stock transaction
+        // Create initial stock transaction if needed
         const willCreateTransaction = formData.inventoryOnHand > 0
         
         if (willCreateTransaction) {
-          console.log('Creating initial stock transaction:', {
-            partId: submissionData.partId,
-            quantity: submissionData.inventoryOnHand,
-            unitCost: submissionData.unitCost,
-            movementType: 'In (Received)',
-            supplier: transactionData.supplier || 'Initial Stock',
-            notes: transactionData.notes || 'Initial inventory setup'
-          })
+          console.log('Creating initial stock transaction for hybrid solution')
           
-          // Create the transaction record
           await createTransaction({
             partId: submissionData.partId,
             movementType: 'In (Received)',
@@ -255,7 +377,10 @@ const PartForm = () => {
     navigate('/parts')
   }
 
-  // Utility functions
+  // =================================================================
+  // UTILITY FUNCTIONS
+  // =================================================================
+  
   const calculateMargin = () => {
     const cost = parseFloat(formData.unitCost) || 0
     const price = parseFloat(formData.unitPrice) || 0
@@ -270,14 +395,25 @@ const PartForm = () => {
     return (quantity * cost).toFixed(2)
   }
 
+  // =================================================================
+  // LOADING STATE
+  // =================================================================
+  
   if (isLoading) {
     return (
       <div className="min-h-[400px] flex items-center justify-center">
-        <LoadingSpinner size="lg" />
+        <div className="text-center">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-600">Loading form data...</p>
+        </div>
       </div>
     )
   }
 
+  // =================================================================
+  // MAIN RENDER
+  // =================================================================
+  
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
@@ -287,7 +423,7 @@ const PartForm = () => {
           <p className="text-gray-600">
             {isEditMode 
               ? 'Update part information and inventory details'
-              : 'Add a new part to your inventory'
+              : 'Add a new part to your inventory with family-based category selection'
             }
           </p>
         </div>
@@ -297,9 +433,31 @@ const PartForm = () => {
         </Link>
       </div>
 
+      {/* HYBRID SOLUTION: Category Selection Mode Toggle */}
+      {!isEditMode && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-blue-900">Category Selection Mode</h3>
+              <p className="text-sm text-blue-700">
+                Choose how you want to select the category for this part
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={toggleSelectionMode}
+              className="btn btn-outline"
+            >
+              {showFamilyFirst ? 'Switch to Category First' : 'Switch to Family First'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Form */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          
           {/* Basic Information Section */}
           <div>
             <h3 className="text-lg font-medium text-gray-900 mb-4">
@@ -327,26 +485,22 @@ const PartForm = () => {
                 )}
               </div>
 
-              {/* Category */}
+              {/* Status */}
               <div>
-                <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
-                  Category *
+                <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
+                  Status
                 </label>
                 <select
-                  id="category"
-                  name="category"
-                  value={formData.category}
+                  id="status"
+                  name="status"
+                  value={formData.status}
                   onChange={handleInputChange}
-                  className={`input ${errors.category ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                  className="input"
                 >
-                  <option value="">Select a category</option>
-                  {categories.map(category => (
-                    <option key={category} value={category}>{category}</option>
-                  ))}
+                  <option value="Active">Active</option>
+                  <option value="Obsolete">Obsolete</option>
+                  <option value="Disposed">Disposed</option>
                 </select>
-                {errors.category && (
-                  <p className="mt-1 text-sm text-red-600">{errors.category}</p>
-                )}
               </div>
 
               {/* Description - Full Width */}
@@ -368,6 +522,139 @@ const PartForm = () => {
                 )}
               </div>
             </div>
+          </div>
+
+          {/* HYBRID SOLUTION: Enhanced Category Selection Section */}
+          <div>
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              Category & Family Selection
+            </h3>
+            
+            {showFamilyFirst ? (
+              /* Family-First Selection Mode */
+              <div className="space-y-4">
+                {/* Family Selection */}
+                <div>
+                  <label htmlFor="family" className="block text-sm font-medium text-gray-700 mb-1">
+                    1. Select Family First
+                  </label>
+                  <select
+                    id="family"
+                    value={selectedFamily}
+                    onChange={handleFamilyChange}
+                    className="input"
+                  >
+                    <option value="">Select a family...</option>
+                    {availableFamilies.map(family => (
+                      <option key={family} value={family}>{family}</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Choose the automotive system family first to filter categories
+                  </p>
+                </div>
+
+                {/* Category Selection (Filtered) */}
+                <div>
+                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+                    2. Select Category *
+                    {selectedFamily && (
+                      <span className="text-blue-600 ml-2">
+                        (from {selectedFamily} family)
+                      </span>
+                    )}
+                  </label>
+                  <select
+                    id="category"
+                    name="category"
+                    value={formData.category}
+                    onChange={handleCategoryChange}
+                    className={`input ${errors.category ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                    disabled={!selectedFamily}
+                  >
+                    <option value="">
+                      {selectedFamily ? 'Select a category...' : 'Please select a family first'}
+                    </option>
+                    {categoriesInSelectedFamily.map(category => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                  {!selectedFamily && (
+                    <p className="mt-1 text-sm text-gray-500">
+                      Select a family above to see available categories
+                    </p>
+                  )}
+                  {errors.category && (
+                    <p className="mt-1 text-sm text-red-600">{errors.category}</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* Category-First Selection Mode */
+              <div className="space-y-4">
+                {/* Category Selection */}
+                <div>
+                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+                    Category *
+                  </label>
+                  <select
+                    id="category"
+                    name="category"
+                    value={formData.category}
+                    onChange={handleCategoryChange}
+                    className={`input ${errors.category ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                  >
+                    <option value="">Select a category...</option>
+                    {categoryNames.map(category => (
+                      <option key={category} value={category}>{category}</option>
+                    ))}
+                  </select>
+                  {errors.category && (
+                    <p className="mt-1 text-sm text-red-600">{errors.category}</p>
+                  )}
+                </div>
+
+                {/* Optional Family Filter */}
+                {availableFamilies.length > 0 && (
+                  <div>
+                    <label htmlFor="familyFilter" className="block text-sm font-medium text-gray-700 mb-1">
+                      Filter by Family (Optional)
+                    </label>
+                    <select
+                      id="familyFilter"
+                      value={selectedFamily}
+                      onChange={handleFamilyChange}
+                      className="input"
+                    >
+                      <option value="">Show all categories</option>
+                      {availableFamilies.map(family => (
+                        <option key={family} value={family}>{family}</option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-sm text-gray-500">
+                      Optional: Filter categories by automotive system family
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* HYBRID SOLUTION: Family Display */}
+            {displayFamily && (
+              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                <div className="flex items-center">
+                  <div className="text-green-600 mr-2">✓</div>
+                  <div>
+                    <span className="text-sm font-medium text-green-800">
+                      Family: {displayFamily}
+                    </span>
+                    <p className="text-sm text-green-700">
+                      Category "{formData.category}" belongs to the {displayFamily} family
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Pricing Section */}
@@ -446,7 +733,7 @@ const PartForm = () => {
               Inventory Information
             </h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Inventory On Hand */}
               <div>
                 <label htmlFor="inventoryOnHand" className="block text-sm font-medium text-gray-700 mb-1">
@@ -472,24 +759,6 @@ const PartForm = () => {
                 )}
               </div>
 
-              {/* Status */}
-              <div>
-                <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
-                  Status
-                </label>
-                <select
-                  id="status"
-                  name="status"
-                  value={formData.status}
-                  onChange={handleInputChange}
-                  className="input"
-                >
-                  <option value="Active">Active</option>
-                  <option value="Obsolete">Obsolete</option>
-                  <option value="Disposed">Disposed</option>
-                </select>
-              </div>
-
               {/* Total Value */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -505,11 +774,11 @@ const PartForm = () => {
             </div>
           </div>
 
-          {/* NEW: Initial Stock Transaction Details */}
+          {/* Initial Stock Transaction Details */}
           {!isEditMode && showTransactionDetails && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
               <h3 className="text-lg font-medium text-blue-900 mb-4">
-                📦 Initial Stock Transaction
+                Initial Stock Transaction
               </h3>
               <p className="text-sm text-blue-700 mb-4">
                 Since you're adding {formData.inventoryOnHand} units, we'll create an initial stock transaction for audit tracking.
@@ -598,27 +867,38 @@ const PartForm = () => {
             </div>
           )}
 
-          {/* Summary Card */}
-          {(formData.partId || formData.description) && (
+          {/* HYBRID SOLUTION: Preview Card */}
+          {(formData.partId || formData.description || formData.category) && (
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-gray-900 mb-2">Preview</h4>
+              <h4 className="text-sm font-medium text-gray-900 mb-2">Part Preview</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-gray-700 font-medium">Part:</span> {formData.partId || 'Not set'}
+                  <span className="text-gray-700 font-medium">Part ID:</span> {formData.partId || 'Not set'}
+                </div>
+                <div>
+                  <span className="text-gray-700 font-medium">Status:</span> {formData.status}
                 </div>
                 <div>
                   <span className="text-gray-700 font-medium">Category:</span> {formData.category || 'Not selected'}
                 </div>
-                <div className="md:col-span-2">
-                  <span className="text-gray-700 font-medium">Description:</span> {formData.description || 'Not set'}
-                </div>
                 <div>
-                  <span className="text-gray-700 font-medium">Price:</span> ${formData.unitPrice || '0.00'}
+                  <span className="text-gray-700 font-medium">Family:</span> 
+                  <span className={displayFamily ? 'text-green-600 ml-1' : 'text-gray-400 ml-1'}>
+                    {displayFamily || 'Will be determined by category'}
+                  </span>
+                </div>
+                {formData.description && (
+                  <div className="md:col-span-2">
+                    <span className="text-gray-700 font-medium">Description:</span> {formData.description}
+                  </div>
+                )}
+                <div>
+                  <span className="text-gray-700 font-medium">Unit Price:</span> ${formData.unitPrice || '0.00'}
                 </div>
                 <div>
                   <span className="text-gray-700 font-medium">On Hand:</span> {formData.inventoryOnHand} units
                   {!isEditMode && formData.inventoryOnHand > 0 && (
-                    <span className="text-blue-600 ml-2">(+ transaction)</span>
+                    <span className="text-blue-600 ml-2">(+ transaction will be created)</span>
                   )}
                 </div>
               </div>
@@ -639,7 +919,7 @@ const PartForm = () => {
                 </>
               ) : (
                 <>
-                  {isEditMode ? '💾 Update Part' : '➕ Create Part'}
+                  {isEditMode ? 'Update Part' : 'Create Part'}
                   {!isEditMode && formData.inventoryOnHand > 0 && ' + Transaction'}
                 </>
               )}
@@ -659,20 +939,34 @@ const PartForm = () => {
                 to={`/parts/${id}`}
                 className="btn btn-outline flex-1 sm:flex-none sm:px-8 text-center"
               >
-                👁️ View Details
+                View Details
               </Link>
             )}
           </div>
 
-          {/* Required Fields Note */}
-          <div className="text-sm text-gray-500 pt-4 border-t border-gray-200">
+          {/* Required Fields Note & Hybrid Solution Info */}
+          <div className="text-sm text-gray-500 pt-4 border-t border-gray-200 space-y-2">
             <p>* Required fields must be completed before saving</p>
             {isEditMode && (
-              <p className="mt-1">Part ID cannot be changed after creation</p>
+              <p>Part ID cannot be changed after creation</p>
             )}
             {!isEditMode && formData.inventoryOnHand > 0 && (
-              <p className="mt-1 text-blue-600">💡 An initial stock transaction will be created automatically</p>
+              <p className="text-blue-600">
+                An initial stock transaction will be created automatically for audit tracking
+              </p>
             )}
+            {/* HYBRID SOLUTION: Information note */}
+            <div className="bg-blue-50 border border-blue-200 rounded p-3 mt-4">
+              <h5 className="text-sm font-medium text-blue-900 mb-1">Hybrid Solution Active</h5>
+              <p className="text-sm text-blue-700">
+                Categories are validated against the master Categories list. Family information is automatically determined based on your category selection.
+              </p>
+              {displayFamily && (
+                <p className="text-sm text-blue-600 mt-1">
+                  Current selection: <strong>{formData.category}</strong> → <strong>{displayFamily}</strong> family
+                </p>
+              )}
+            </div>
           </div>
         </form>
       </div>
