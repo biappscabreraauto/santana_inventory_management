@@ -1,8 +1,8 @@
 // =================================================================
-// TRANSACTION HISTORY - VIEW ALL INVENTORY MOVEMENTS
+// REVISED TRANSACTION HISTORY - SIMPLIFIED WITHOUT SUMMARIES
 // =================================================================
-// Component for viewing all inventory transactions across all parts
-// Shows complete audit trail of inventory movements
+// Component for viewing all inventory transactions with proper cost/price display
+// Shows unit cost for inbound, unit price for outbound
 
 import React, { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
@@ -125,38 +125,41 @@ const TransactionHistory = () => {
     }).format(amount)
   }
 
+  // REVISED: Calculate transaction total based on movement type
   const getTransactionTotal = (transaction) => {
-    const price = transaction.unitPrice || transaction.unitCost || 0
-    return transaction.quantity * price
+    if (transaction.movementType?.includes('In') || transaction.movementType === 'Adjustment') {
+      // For inbound: Use unit cost
+      const cost = transaction.unitCost || 0
+      return transaction.quantity * cost
+    } else if (transaction.movementType?.includes('Out')) {
+      // For outbound: Use unit price
+      const price = transaction.unitPrice || 0
+      return transaction.quantity * price
+    }
+    return 0
   }
 
-  // =================================================================
-  // SUMMARY CALCULATIONS
-  // =================================================================
-  const summaryStats = useMemo(() => {
-    const totalTransactions = filteredTransactions.length
-    const inboundTransactions = filteredTransactions.filter(t => t.movementType?.includes('In')).length
-    const outboundTransactions = filteredTransactions.filter(t => t.movementType?.includes('Out')).length
-    
-    const totalInbound = filteredTransactions
-      .filter(t => t.movementType?.includes('In'))
-      .reduce((sum, t) => sum + t.quantity, 0)
-    
-    const totalOutbound = filteredTransactions
-      .filter(t => t.movementType?.includes('Out'))
-      .reduce((sum, t) => sum + t.quantity, 0)
-    
-    const totalValue = filteredTransactions.reduce((sum, t) => sum + getTransactionTotal(t), 0)
-    
-    return {
-      totalTransactions,
-      inboundTransactions,
-      outboundTransactions,
-      totalInbound,
-      totalOutbound,
-      totalValue
+  // REVISED: Get the appropriate unit value to display
+  const getUnitValue = (transaction) => {
+    if (transaction.movementType?.includes('In') || transaction.movementType === 'Adjustment') {
+      // For inbound: Show unit cost
+      return transaction.unitCost || 0
+    } else if (transaction.movementType?.includes('Out')) {
+      // For outbound: Show unit price
+      return transaction.unitPrice || 0
     }
-  }, [filteredTransactions])
+    return 0
+  }
+
+  // REVISED: Get the unit value label
+  const getUnitValueLabel = (transaction) => {
+    if (transaction.movementType?.includes('In') || transaction.movementType === 'Adjustment') {
+      return 'Unit Cost'
+    } else if (transaction.movementType?.includes('Out')) {
+      return 'Unit Price'
+    }
+    return 'Unit Value'
+  }
 
   // =================================================================
   // LOADING STATE
@@ -198,7 +201,7 @@ const TransactionHistory = () => {
   // =================================================================
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header - SIMPLIFIED */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Transaction History</h1>
@@ -228,41 +231,7 @@ const TransactionHistory = () => {
         </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <div className="text-sm font-medium text-gray-500 mb-1">Total Transactions</div>
-          <div className="text-2xl font-bold text-gray-900">{summaryStats.totalTransactions}</div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <div className="text-sm font-medium text-gray-500 mb-1">Inbound</div>
-          <div className="text-2xl font-bold text-green-600">{summaryStats.inboundTransactions}</div>
-          <div className="text-xs text-gray-500">+{summaryStats.totalInbound} units</div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <div className="text-sm font-medium text-gray-500 mb-1">Outbound</div>
-          <div className="text-2xl font-bold text-red-600">{summaryStats.outboundTransactions}</div>
-          <div className="text-xs text-gray-500">-{summaryStats.totalOutbound} units</div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <div className="text-sm font-medium text-gray-500 mb-1">Net Movement</div>
-          <div className={`text-2xl font-bold ${summaryStats.totalInbound - summaryStats.totalOutbound >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {summaryStats.totalInbound - summaryStats.totalOutbound >= 0 ? '+' : ''}{summaryStats.totalInbound - summaryStats.totalOutbound}
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <div className="text-sm font-medium text-gray-500 mb-1">Total Value</div>
-          <div className="text-2xl font-bold text-blue-600">{formatCurrency(summaryStats.totalValue)}</div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <div className="text-sm font-medium text-gray-500 mb-1">Avg per Transaction</div>
-          <div className="text-2xl font-bold text-gray-900">
-            {summaryStats.totalTransactions > 0 ? formatCurrency(summaryStats.totalValue / summaryStats.totalTransactions) : '$0.00'}
-          </div>
-        </div>
-      </div>
-
-      {/* Filters */}
+      {/* Filters - KEPT AS IS */}
       <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Search */}
@@ -321,7 +290,7 @@ const TransactionHistory = () => {
         </div>
       </div>
 
-      {/* Transactions Table */}
+      {/* Transactions Table - REVISED COLUMN HEADERS AND CONTENT */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {filteredTransactions.length === 0 ? (
           <div className="text-center py-12">
@@ -366,8 +335,9 @@ const TransactionHistory = () => {
                   >
                     Quantity {getSortIcon('quantity')}
                   </th>
+                  {/* REVISED: Dynamic column header */}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Unit Price
+                    Unit Value
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Total
@@ -411,8 +381,16 @@ const TransactionHistory = () => {
                         {transaction.movementType?.includes('In') ? '+' : '-'}{transaction.quantity}
                       </span>
                     </td>
+                    {/* REVISED: Show appropriate unit value with label */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatCurrency(transaction.unitPrice || transaction.unitCost || 0)}
+                      <div className="flex flex-col">
+                        <span className="font-medium">
+                          {formatCurrency(getUnitValue(transaction))}
+                        </span>
+                        <span className="text-xs text-gray-500">
+                          {getUnitValueLabel(transaction)}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {formatCurrency(getTransactionTotal(transaction))}
@@ -447,7 +425,7 @@ const TransactionHistory = () => {
         )}
       </div>
 
-      {/* Filter Summary */}
+      {/* Filter Summary - KEPT AS IS */}
       {(searchTerm || movementTypeFilter || dateFilter) && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
@@ -463,32 +441,6 @@ const TransactionHistory = () => {
             >
               Clear all filters
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Transaction Summary */}
-      {filteredTransactions.length > 0 && (
-        <div className="bg-gray-50 rounded-lg p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Transaction Summary</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white rounded-lg p-4 border border-gray-200">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Inbound Movements</h4>
-              <div className="text-2xl font-bold text-green-600 mb-1">+{summaryStats.totalInbound}</div>
-              <div className="text-sm text-gray-600">{summaryStats.inboundTransactions} transactions</div>
-            </div>
-            
-            <div className="bg-white rounded-lg p-4 border border-gray-200">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Outbound Movements</h4>
-              <div className="text-2xl font-bold text-red-600 mb-1">-{summaryStats.totalOutbound}</div>
-              <div className="text-sm text-gray-600">{summaryStats.outboundTransactions} transactions</div>
-            </div>
-            
-            <div className="bg-white rounded-lg p-4 border border-gray-200">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Total Value</h4>
-              <div className="text-2xl font-bold text-blue-600 mb-1">{formatCurrency(summaryStats.totalValue)}</div>
-              <div className="text-sm text-gray-600">All transactions</div>
-            </div>
           </div>
         </div>
       )}

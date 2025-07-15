@@ -149,11 +149,48 @@ const transformSharePointItem = (sharePointItem, listType) => {
  */
 const transformToSharePoint = (data, listType) => {
   switch (listType) {
+    case 'transactions':
+      // Start with base transaction data
+      const transactionData = {
+        Part: data.partId, // Text field (hybrid solution)
+        MovementType: data.movementType,
+        Quantity: data.quantity || 0,
+        Notes: data.notes || '',
+        Supplier: data.supplier || ''
+      };
+
+      // CRITICAL FIX: Only set the relevant price field based on movement type
+      if (data.movementType === 'In (Received)' || data.movementType === 'Adjustment') {
+        // For INBOUND: Only set UnitCost, explicitly DO NOT set UnitPrice
+        if (data.unitCost !== undefined && data.unitCost !== null) {
+          transactionData.UnitCost = data.unitCost;
+        }
+        // Do NOT set UnitPrice at all - leave it undefined so SharePoint doesn't store it
+      } else if (data.movementType === 'Out (Sold)') {
+        // For OUTBOUND: Set UnitPrice (selling price)
+        if (data.unitPrice !== undefined && data.unitPrice !== null) {
+          transactionData.UnitPrice = data.unitPrice;
+        }
+        // Optionally include UnitCost for reference
+        if (data.unitCost !== undefined && data.unitCost !== null) {
+          transactionData.UnitCost = data.unitCost;
+        }
+        // Include invoice and buyer references for sales
+        if (data.invoice) {
+          transactionData.Invoice = data.invoice;
+        }
+        if (data.buyer) {
+          transactionData.Buyer = data.buyer;
+        }
+      }
+
+      console.log('Final SharePoint transaction data:', transactionData);
+      return transactionData;
+
     case 'parts':
       return {
         Title: data.partId,
         Description: data.description,
-        // HYBRID SOLUTION: Category is now direct text value
         Category: data.category || 'Uncategorized',
         InventoryOnHand: data.inventoryOnHand || 0,
         UnitCost: data.unitCost || 0,
@@ -174,19 +211,6 @@ const transformToSharePoint = (data, listType) => {
         Phone: data.phone || '',
       };
 
-    case 'transactions':
-      return {
-        Part: data.partId,
-        MovementType: data.movementType,
-        Quantity: data.quantity || 0,
-        UnitCost: data.unitCost || 0,
-        UnitPrice: data.unitPrice || 0,
-        Invoice: data.invoice || '',
-        Buyer: data.buyer || '',
-        Notes: data.notes || '',
-        Supplier: data.supplier || '',
-      };
-
     case 'invoices':
       return {
         Title: data.invoiceNumber,
@@ -200,7 +224,7 @@ const transformToSharePoint = (data, listType) => {
     default:
       return data;
   }
-};
+}; 
 
 // =================================================================
 // SHAREPOINT SERVICE CLASS
@@ -1023,7 +1047,35 @@ class SharePointService {
   }
 
   /**
-   * Create new transaction in SharePoint
+   * Resolve Part ID to SharePoint item ID for lookup fields
+   * ADD THIS METHOD to your SharePointService class
+   */
+  async resolvePartIdToItemId(accessToken, partId) {
+    try {
+      const graphClient = createGraphClient(accessToken);
+      
+      const response = await graphClient
+        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
+        .filter(`fields/Title eq '${partId}'`)
+        .select('id')
+        .top(1)
+        .get();
+      
+      if (response.value && response.value.length > 0) {
+        console.log(`✅ Resolved Part ID "${partId}" to SharePoint item ID: ${response.value[0].id}`);
+        return response.value[0].id;
+      }
+      
+      console.warn(`⚠️ Could not resolve Part ID "${partId}" to SharePoint item ID`);
+      return null;
+    } catch (error) {
+      console.error('Failed to resolve Part ID to item ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Create new transaction in SharePoint (simplified for text-based Part field)
    */
   async createTransaction(accessToken, transactionData) {
     const graphClient = createGraphClient(accessToken);
@@ -1031,14 +1083,13 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
+        // HYBRID SOLUTION: No need to resolve Part ID since it's now a text field
         const sharePointData = transformToSharePoint(transactionData, 'transactions');
 
         console.log('Creating transaction with data:', sharePointData);
 
         const response = await graphClient
-          .api(
-            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.transactions}/items`
-          )
+          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.transactions}/items`)
           .post({
             fields: sharePointData,
           });

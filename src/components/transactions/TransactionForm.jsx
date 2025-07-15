@@ -1,10 +1,10 @@
 // =================================================================
-// TRANSACTION FORM - LOG INBOUND PARTS (REVISED)
+// COMPLETE REVISED TRANSACTION FORM - FIXED CALCULATIONS
 // =================================================================
 // Component for logging inbound inventory movements and adjustments
-// Uses the unit cost already defined in the part (no duplicate entry)
+// Fixed price/cost calculations based on movement type
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
@@ -36,6 +36,58 @@ const TransactionForm = () => {
 
   // Get selected part details
   const selectedPart = parts.find(part => part.partId === formData.partId)
+
+  // =================================================================
+  // CALCULATED VALUES - FIXED FOR DIFFERENT MOVEMENT TYPES
+  // =================================================================
+  
+  // Calculate total value based on movement type
+  const totalValue = useMemo(() => {
+    if (!selectedPart || !formData.quantity) return '0.00'
+    
+    const quantity = parseFloat(formData.quantity) || 0
+    
+    if (formData.movementType === 'In (Received)' || formData.movementType === 'Adjustment') {
+      // For inbound: Use unit cost
+      return (quantity * (selectedPart.unitCost || 0)).toFixed(2)
+    } else if (formData.movementType === 'Out (Sold)') {
+      // For outbound: Use unit price (selling price)
+      return (quantity * (selectedPart.unitPrice || 0)).toFixed(2)
+    }
+    
+    return '0.00'
+  }, [selectedPart, formData.quantity, formData.movementType])
+
+  // Get transaction type information for UI display
+  const getTransactionTypeInfo = () => {
+    if (formData.movementType === 'In (Received)' || formData.movementType === 'Adjustment') {
+      return {
+        priceLabel: 'Unit Cost',
+        priceValue: selectedPart?.unitCost || 0,
+        totalLabel: 'Total Cost',
+        description: 'Cost to acquire/receive',
+        quantityPrefix: '+',
+        quantityColor: 'text-green-600'
+      }
+    } else if (formData.movementType === 'Out (Sold)') {
+      return {
+        priceLabel: 'Unit Price',
+        priceValue: selectedPart?.unitPrice || 0,
+        totalLabel: 'Total Revenue',
+        description: 'Selling price to customer',
+        quantityPrefix: '-',
+        quantityColor: 'text-red-600'
+      }
+    }
+    return {
+      priceLabel: 'Unit Value',
+      priceValue: 0,
+      totalLabel: 'Total Value',
+      description: 'Transaction value',
+      quantityPrefix: '',
+      quantityColor: 'text-gray-600'
+    }
+  }
 
   // =================================================================
   // HANDLERS
@@ -71,12 +123,20 @@ const TransactionForm = () => {
     }
 
     if (!formData.receiptDate) {
-      newErrors.receiptDate = 'Receipt date is required'
+      newErrors.receiptDate = 'Date is required'
     }
 
-    // Check if selected part exists and has unit cost
-    if (formData.partId && selectedPart && (!selectedPart.unitCost || selectedPart.unitCost <= 0)) {
-      newErrors.partId = 'Selected part must have a valid unit cost set in the Parts catalog'
+    // Check if selected part exists and has appropriate pricing
+    if (formData.partId && selectedPart) {
+      if (formData.movementType === 'In (Received)' || formData.movementType === 'Adjustment') {
+        if (!selectedPart.unitCost || selectedPart.unitCost <= 0) {
+          newErrors.partId = 'Selected part must have a valid unit cost for inbound transactions'
+        }
+      } else if (formData.movementType === 'Out (Sold)') {
+        if (!selectedPart.unitPrice || selectedPart.unitPrice <= 0) {
+          newErrors.partId = 'Selected part must have a valid unit price for outbound transactions'
+        }
+      }
     }
 
     setErrors(newErrors)
@@ -94,19 +154,34 @@ const TransactionForm = () => {
     try {
       setSaving(true)
 
+      // FIXED: Properly structure transaction data based on movement type
       const transactionData = {
         partId: formData.partId,
         movementType: formData.movementType,
         quantity: parseFloat(formData.quantity),
-        unitCost: selectedPart.unitCost, // Use the unit cost from the part
-        // Store supplier info in notes since supplier field doesn't exist in SharePoint
-        notes: formData.supplier 
-          ? `${formData.notes ? formData.notes + ' | ' : ''}Supplier: ${formData.supplier}`
-          : formData.notes || `${formData.movementType} - ${formData.quantity} units`
+        supplier: formData.supplier || '',
+        notes: formData.notes || `${formData.movementType} - ${formData.quantity} units`
       }
 
+      // FIXED: Set cost/price based on movement type
+      if (formData.movementType === 'In (Received)' || formData.movementType === 'Adjustment') {
+        // For INBOUND: Only set unitCost, do NOT set unitPrice
+        transactionData.unitCost = selectedPart.unitCost
+        // Explicitly do NOT set unitPrice - it should remain undefined
+      } else if (formData.movementType === 'Out (Sold)') {
+        // For OUTBOUND: Set unitPrice (selling price), optionally unitCost
+        transactionData.unitPrice = selectedPart.unitPrice
+        transactionData.unitCost = selectedPart.unitCost // Optional for reference
+      }
+
+      console.log('Transaction data being sent:', transactionData)
+
       await createTransaction(transactionData)
-      success(`Transaction logged successfully! Added ${formData.quantity} units to inventory.`)
+      
+      const actionText = formData.movementType === 'In (Received)' ? 'Added' : 
+                        formData.movementType === 'Out (Sold)' ? 'Removed' : 'Adjusted'
+      
+      success(`Transaction logged successfully! ${actionText} ${formData.quantity} units.`)
       navigate('/transactions')
       
     } catch (err) {
@@ -122,13 +197,6 @@ const TransactionForm = () => {
   }
 
   // =================================================================
-  // CALCULATED VALUES
-  // =================================================================
-  const totalValue = selectedPart && formData.quantity 
-    ? (formData.quantity * selectedPart.unitCost).toFixed(2)
-    : '0.00'
-
-  // =================================================================
   // LOADING STATE
   // =================================================================
   if (partsLoading) {
@@ -142,6 +210,8 @@ const TransactionForm = () => {
     )
   }
 
+  const transactionTypeInfo = getTransactionTypeInfo()
+
   // =================================================================
   // RENDER
   // =================================================================
@@ -150,9 +220,15 @@ const TransactionForm = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Log Inbound Parts</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {formData.movementType === 'In (Received)' ? 'Log Inbound Parts' :
+             formData.movementType === 'Out (Sold)' ? 'Log Outbound Parts' :
+             'Log Inventory Adjustment'}
+          </h1>
           <p className="text-gray-600">
-            Record received inventory from suppliers or manual adjustments
+            {formData.movementType === 'In (Received)' ? 'Record received inventory from suppliers' :
+             formData.movementType === 'Out (Sold)' ? 'Record sold inventory to customers' :
+             'Record manual inventory adjustments'}
           </p>
         </div>
         
@@ -185,6 +261,29 @@ const TransactionForm = () => {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           
+          {/* Movement Type - UPDATED for better UX */}
+          <div>
+            <label htmlFor="movementType" className="block text-sm font-medium text-gray-700 mb-1">
+              Transaction Type
+            </label>
+            <select
+              id="movementType"
+              name="movementType"
+              value={formData.movementType}
+              onChange={handleInputChange}
+              className="input"
+            >
+              <option value="In (Received)">📦 In (Received) - Add inventory</option>
+              <option value="Out (Sold)">📤 Out (Sold) - Remove inventory</option>
+              <option value="Adjustment">⚖️ Adjustment - Correct inventory</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {formData.movementType === 'In (Received)' && 'Use this for receiving new stock from suppliers'}
+              {formData.movementType === 'Out (Sold)' && 'Use this for sales transactions (usually auto-generated from invoices)'}
+              {formData.movementType === 'Adjustment' && 'Use this for manual corrections or inventory counts'}
+            </p>
+          </div>
+
           {/* Part Selection */}
           <div>
             <label htmlFor="partId" className="block text-sm font-medium text-gray-700 mb-1">
@@ -205,7 +304,9 @@ const TransactionForm = () => {
                 )
                 .map(part => (
                   <option key={`${part.id}-${part.partId}`} value={part.partId}>
-                    {part.partId} - {part.description} (Cost: ${part.unitCost?.toFixed(2) || '0.00'})
+                    {part.partId} - {part.description} 
+                    (Cost: ${part.unitCost?.toFixed(2) || '0.00'}, 
+                     Price: ${part.unitPrice?.toFixed(2) || '0.00'})
                   </option>
                 ))
               }
@@ -215,7 +316,7 @@ const TransactionForm = () => {
             )}
           </div>
 
-          {/* Selected Part Details */}
+          {/* Selected Part Details - ENHANCED */}
           {selectedPart && (
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
               <h4 className="text-sm font-medium text-gray-900 mb-2">Selected Part Details</h4>
@@ -229,37 +330,29 @@ const TransactionForm = () => {
                   <div className="text-gray-900 font-bold">${selectedPart.unitCost?.toFixed(2) || '0.00'}</div>
                 </div>
                 <div>
-                  <span className="text-gray-600 font-medium">Current Stock:</span>
-                  <div className="text-gray-900">{selectedPart.inventoryOnHand} units</div>
+                  <span className="text-gray-600 font-medium">Unit Price:</span>
+                  <div className="text-gray-900 font-bold">${selectedPart.unitPrice?.toFixed(2) || '0.00'}</div>
                 </div>
                 <div>
-                  <span className="text-gray-600 font-medium">Category:</span>
-                  <div className="text-gray-900">{selectedPart.category}</div>
+                  <span className="text-gray-600 font-medium">Current Stock:</span>
+                  <div className={`font-medium ${
+                    selectedPart.inventoryOnHand === 0 ? 'text-red-600' :
+                    selectedPart.inventoryOnHand <= 5 ? 'text-yellow-600' : 'text-green-600'
+                  }`}>
+                    {selectedPart.inventoryOnHand} units
+                  </div>
                 </div>
               </div>
               <div className="mt-2">
                 <span className="text-gray-600 font-medium">Description:</span>
                 <div className="text-gray-900">{selectedPart.description}</div>
               </div>
+              <div className="mt-2">
+                <span className="text-gray-600 font-medium">Category:</span>
+                <div className="text-gray-900">{selectedPart.category}</div>
+              </div>
             </div>
           )}
-
-          {/* Movement Type */}
-          <div>
-            <label htmlFor="movementType" className="block text-sm font-medium text-gray-700 mb-1">
-              Movement Type
-            </label>
-            <select
-              id="movementType"
-              name="movementType"
-              value={formData.movementType}
-              onChange={handleInputChange}
-              className="input"
-            >
-              <option value="In (Received)">In (Received)</option>
-              <option value="Adjustment">Adjustment</option>
-            </select>
-          </div>
 
           {/* Quantity */}
           <div>
@@ -282,10 +375,10 @@ const TransactionForm = () => {
             )}
           </div>
 
-          {/* Receipt Date */}
+          {/* Date */}
           <div>
             <label htmlFor="receiptDate" className="block text-sm font-medium text-gray-700 mb-1">
-              Receipt Date *
+              Transaction Date *
             </label>
             <input
               type="date"
@@ -300,21 +393,23 @@ const TransactionForm = () => {
             )}
           </div>
 
-          {/* Supplier */}
-          <div>
-            <label htmlFor="supplier" className="block text-sm font-medium text-gray-700 mb-1">
-              Supplier <span className="text-gray-500">(Optional)</span>
-            </label>
-            <input
-              type="text"
-              id="supplier"
-              name="supplier"
-              value={formData.supplier}
-              onChange={handleInputChange}
-              placeholder="e.g., Parts Warehouse Inc"
-              className="input"
-            />
-          </div>
+          {/* Supplier - CONDITIONAL DISPLAY */}
+          {(formData.movementType === 'In (Received)' || formData.movementType === 'Adjustment') && (
+            <div>
+              <label htmlFor="supplier" className="block text-sm font-medium text-gray-700 mb-1">
+                Supplier <span className="text-gray-500">(Optional)</span>
+              </label>
+              <input
+                type="text"
+                id="supplier"
+                name="supplier"
+                value={formData.supplier}
+                onChange={handleInputChange}
+                placeholder="e.g., Parts Warehouse Inc"
+                className="input"
+              />
+            </div>
+          )}
 
           {/* Notes */}
           <div>
@@ -332,7 +427,7 @@ const TransactionForm = () => {
             />
           </div>
 
-          {/* Transaction Summary */}
+          {/* Transaction Summary - ENHANCED WITH PROPER CALCULATIONS */}
           {formData.quantity && selectedPart && (
             <div className="bg-gray-50 rounded-lg p-4">
               <h4 className="text-sm font-medium text-gray-900 mb-2">Transaction Summary</h4>
@@ -343,19 +438,51 @@ const TransactionForm = () => {
                 </div>
                 <div>
                   <span className="text-gray-600 font-medium">Quantity:</span>
-                  <div className="text-green-600 font-medium">+{formData.quantity}</div>
+                  <div className={`font-medium ${transactionTypeInfo.quantityColor}`}>
+                    {transactionTypeInfo.quantityPrefix}{formData.quantity}
+                  </div>
                 </div>
                 <div>
-                  <span className="text-gray-600 font-medium">Unit Cost:</span>
-                  <div className="text-gray-900">${selectedPart.unitCost?.toFixed(2) || '0.00'}</div>
+                  <span className="text-gray-600 font-medium">
+                    {transactionTypeInfo.priceLabel}:
+                  </span>
+                  <div className="text-gray-900">
+                    ${transactionTypeInfo.priceValue?.toFixed(2) || '0.00'}
+                  </div>
                 </div>
                 <div>
-                  <span className="text-gray-600 font-medium">Total Value:</span>
+                  <span className="text-gray-600 font-medium">
+                    {transactionTypeInfo.totalLabel}:
+                  </span>
                   <div className="text-gray-900 font-bold">${totalValue}</div>
                 </div>
               </div>
               <div className="mt-2 text-xs text-gray-500">
-                Unit cost is automatically taken from the part's catalog entry
+                {transactionTypeInfo.description}
+              </div>
+              
+              {/* Stock Impact Preview */}
+              <div className="mt-3 p-3 bg-white rounded border border-gray-200">
+                <h5 className="text-xs font-medium text-gray-700 mb-1">Stock Impact Preview</h5>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Current Stock:</span>
+                  <span className="font-medium">{selectedPart.inventoryOnHand} units</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Transaction:</span>
+                  <span className={`font-medium ${transactionTypeInfo.quantityColor}`}>
+                    {transactionTypeInfo.quantityPrefix}{formData.quantity} units
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-sm border-t border-gray-200 pt-2 mt-2">
+                  <span className="text-gray-700 font-medium">New Stock Level:</span>
+                  <span className="font-bold">
+                    {formData.movementType === 'In (Received)' || formData.movementType === 'Adjustment' ?
+                      selectedPart.inventoryOnHand + parseFloat(formData.quantity || 0) :
+                      selectedPart.inventoryOnHand - parseFloat(formData.quantity || 0)
+                    } units
+                  </span>
+                </div>
               </div>
             </div>
           )}
@@ -373,7 +500,10 @@ const TransactionForm = () => {
                   Logging Transaction...
                 </>
               ) : (
-                'Log Transaction'
+                <>
+                  Log {formData.movementType === 'In (Received)' ? 'Inbound' :
+                       formData.movementType === 'Out (Sold)' ? 'Outbound' : 'Adjustment'} Transaction
+                </>
               )}
             </button>
             
@@ -387,12 +517,18 @@ const TransactionForm = () => {
             </button>
           </div>
 
-          {/* Required Fields Note */}
-          <div className="text-sm text-gray-500 pt-4 border-t border-gray-200">
+          {/* Required Fields Note & Information */}
+          <div className="text-sm text-gray-500 pt-4 border-t border-gray-200 space-y-2">
             <p>* Required fields must be completed before saving</p>
-            <p className="text-blue-600 mt-1">
-              This transaction will automatically update the part's inventory quantity using the unit cost from the part catalog
-            </p>
+            <div className="bg-blue-50 border border-blue-200 rounded p-3 mt-4">
+              <h5 className="text-sm font-medium text-blue-900 mb-1">Transaction Processing</h5>
+              <div className="text-sm text-blue-700 space-y-1">
+                <p>• <strong>Inbound transactions:</strong> Use unit cost for inventory valuation</p>
+                <p>• <strong>Outbound transactions:</strong> Use unit price for revenue calculation</p>
+                <p>• <strong>Adjustments:</strong> Use unit cost for inventory correction</p>
+                <p>• <strong>Inventory levels:</strong> Updated automatically after transaction</p>
+              </div>
+            </div>
           </div>
         </form>
       </div>

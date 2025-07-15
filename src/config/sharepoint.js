@@ -189,18 +189,22 @@ export const TRANSACTIONS_SCHEMA = {
     'UnitCost': 'unitCost',
     'UnitPrice': 'unitPrice',
     'Invoice': 'invoice',
+    'Buyer': 'buyer',
+    'Supplier': 'supplier',
     'Notes': 'notes'
   },
   
   fieldTypes: {
-    // May need to convert to text in future if Graph API issues persist
-    partId: 'lookup',
+    // HYBRID SOLUTION: Changed from 'lookup' to 'text' 
+    partId: 'text', // Was 'lookup', now 'text' due to Graph API bug
     movementType: 'choice',
     quantity: 'number',
     unitCost: 'currency',
     unitPrice: 'currency',
-    // May need to convert to text in future if Graph API issues persist
+    // May need to convert these to text in future if Graph API issues persist
     invoice: 'lookup',
+    buyer: 'lookup',
+    supplier: 'text',
     notes: 'multiline'
   },
   
@@ -209,8 +213,19 @@ export const TRANSACTIONS_SCHEMA = {
   },
   
   requiredFields: ['partId', 'movementType', 'quantity'],
-  searchableFields: ['partId', 'movementType', 'invoice'],
-  displayFields: ['partId', 'movementType', 'quantity', 'unitCost', 'unitPrice', 'invoice']
+  searchableFields: ['partId', 'movementType', 'invoice', 'buyer', 'supplier'],
+  displayFields: ['partId', 'movementType', 'quantity', 'unitCost', 'unitPrice', 'invoice', 'buyer', 'supplier', 'notes'],
+
+  // HYBRID SOLUTION: Part field validation
+  validation: {
+    partId: {
+      required: true,
+      validateAgainstList: true, // Can validate against Parts list in application
+      caseSensitive: false,
+      trimWhitespace: true,
+      message: 'Part ID is required and must exist in the Parts catalog'
+    }
+  }
 }
 
 /**
