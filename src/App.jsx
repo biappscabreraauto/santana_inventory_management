@@ -114,7 +114,6 @@ const AuthenticatedRoutes = () => (
         <Route path="/invoices" element={<InvoiceList />} />
         <Route path="/invoices/new" element={<InvoiceForm />} />
         <Route path="/invoices/:id" element={<InvoiceDetails />} />
-        <Route path="/invoices/:id/edit" element={<InvoiceForm />} />
         
         {/* Transaction Management */}
         <Route path="/transactions" element={<TransactionHistory />} />

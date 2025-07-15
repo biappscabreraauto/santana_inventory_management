@@ -229,7 +229,7 @@ export const TRANSACTIONS_SCHEMA = {
 }
 
 /**
- * Invoices list schema mapping
+ * Invoices list schema mapping - UPDATED: Removed 'Draft' status
  */
 export const INVOICES_SCHEMA = {
   fieldMapping: {
@@ -249,7 +249,8 @@ export const INVOICES_SCHEMA = {
   },
   
   choices: {
-    status: ['Draft', 'Finalized', 'Paid', 'Void']
+    // UPDATED: Removed 'Draft' status to remove flexibility
+    status: ['Finalized', 'Paid', 'Void']
   },
   
   requiredFields: ['invoiceNumber', 'buyer', 'invoiceDate'],

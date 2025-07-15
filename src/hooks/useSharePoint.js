@@ -738,7 +738,7 @@ export const useBuyer = (buyerId) => {
 // =================================================================
 
 /**
- * Hook for managing invoices data
+ * Hook for managing invoices data - UPDATED: Removed edit/delete, added void
  * @param {Object} options - Query options for invoices
  * @returns {Object} Invoices data and operations
  */
@@ -779,7 +779,7 @@ export const useInvoices = (options = {}) => {
   }, [executeOperation, JSON.stringify(options)])
 
   /**
-   * Create a new invoice
+   * Create a new invoice - UPDATED: Always creates as 'Finalized'
    */
   const createInvoice = useCallback(async (invoiceData) => {
     const result = await executeOperation(
@@ -787,86 +787,31 @@ export const useInvoices = (options = {}) => {
       'Failed to create invoice'
     )
     
-    success('Invoice created successfully!')
+    success('Invoice created and finalized successfully!')
     await loadInvoices()
     
     return result
   }, [executeOperation, success, loadInvoices])
 
+  // REMOVED: updateInvoice() - no longer supported
+  // REMOVED: deleteInvoice() - no longer supported  
+  // REMOVED: deleteMultipleInvoices() - no longer supported
+  // REMOVED: finalizeInvoice() - handled in createInvoice()
+
   /**
-   * Update an existing invoice
+   * Void an invoice - NEW: Create offsetting transactions
    */
-  const updateInvoice = useCallback(async (invoiceId, invoiceData) => {
+  const voidInvoice = useCallback(async (invoiceId) => {
     const result = await executeOperation(
-      (token) => sharePointService.updateInvoice(token, invoiceId, invoiceData),
-      'Failed to update invoice'
+      (token) => sharePointService.voidInvoice(token, invoiceId),
+      'Failed to void invoice'
     )
     
-    success('Invoice updated successfully!')
+    success('Invoice voided successfully! Inventory restored.')
     
     setInvoices(prevInvoices => 
       prevInvoices.map(invoice => 
-        invoice.id === invoiceId ? { ...invoice, ...result } : invoice
-      )
-    )
-    
-    return result
-  }, [executeOperation, success])
-
-  /**
-   * Delete an invoice
-   */
-  const deleteInvoice = useCallback(async (invoiceId) => {
-    const result = await executeOperation(
-      (token) => sharePointService.deleteInvoice(token, invoiceId),
-      'Failed to delete invoice'
-    )
-    
-    success('Invoice deleted successfully!')
-    
-    setInvoices(prevInvoices => 
-      prevInvoices.filter(invoice => invoice.id !== invoiceId)
-    )
-    
-    return result
-  }, [executeOperation, success])
-
-  /**
-   * Delete multiple invoices
-   */
-  const deleteMultipleInvoices = useCallback(async (invoiceIds) => {
-    const result = await executeOperation(
-      (token) => sharePointService.deleteMultipleInvoices(token, invoiceIds),
-      'Failed to delete invoices'
-    )
-    
-    if (result.succeeded > 0) {
-      success(`Successfully deleted ${result.succeeded} invoice(s)`)
-    }
-    
-    if (result.failed > 0) {
-      console.warn('Some invoices failed to delete:', result.errors)
-    }
-    
-    await loadInvoices()
-    
-    return result
-  }, [executeOperation, success, loadInvoices])
-
-  /**
-   * Finalize an invoice (convert from Draft to Finalized)
-   */
-  const finalizeInvoice = useCallback(async (invoiceId, lineItems) => {
-    const result = await executeOperation(
-      (token) => sharePointService.finalizeInvoice(token, invoiceId, lineItems),
-      'Failed to finalize invoice'
-    )
-    
-    success('Invoice finalized successfully!')
-    
-    setInvoices(prevInvoices => 
-      prevInvoices.map(invoice => 
-        invoice.id === invoiceId ? { ...invoice, status: 'Finalized' } : invoice
+        invoice.id === invoiceId ? { ...invoice, status: 'Void' } : invoice
       )
     )
     
@@ -895,16 +840,13 @@ export const useInvoices = (options = {}) => {
     loading,
     error,
     createInvoice,
-    updateInvoice,
-    deleteInvoice,
-    deleteMultipleInvoices,
-    finalizeInvoice,
+    voidInvoice,
     refreshInvoices
   }
 }
 
 /**
- * Hook for managing a single invoice
+ * Hook for managing a single invoice - UPDATED: Removed edit/delete, added void
  * @param {string} invoiceId - Invoice ID to manage
  * @returns {Object} Single invoice data and operations
  */
@@ -957,50 +899,24 @@ export const useInvoice = (invoiceId) => {
     }
   }, [executeOperation, invoiceId])
 
+  // REMOVED: updateInvoice() - no longer supported
+  // REMOVED: deleteInvoice() - no longer supported
+  // REMOVED: finalizeInvoice() - handled in creation
+
   /**
-   * Update the current invoice
+   * Void the current invoice - NEW: Create offsetting transactions
    */
-  const updateInvoice = useCallback(async (invoiceData) => {
+  const voidInvoice = useCallback(async () => {
     const result = await executeOperation(
-      (token) => sharePointService.updateInvoice(token, invoiceId, invoiceData),
-      'Failed to update invoice'
+      (token) => sharePointService.voidInvoice(token, invoiceId),
+      'Failed to void invoice'
     )
     
-    success('Invoice updated successfully!')
-    setInvoice(result)
+    success('Invoice voided successfully! Inventory restored.')
+    setInvoice(prev => ({ ...prev, status: 'Void' }))
     
     return result
   }, [executeOperation, invoiceId, success])
-
-  /**
-   * Delete the current invoice
-   */
-  const deleteInvoice = useCallback(async () => {
-    const result = await executeOperation(
-      (token) => sharePointService.deleteInvoice(token, invoiceId),
-      'Failed to delete invoice'
-    )
-    
-    success('Invoice deleted successfully!')
-    setInvoice(null)
-    
-    return result
-  }, [executeOperation, invoiceId, success])
-
-  /**
-   * Finalize the current invoice
-   */
-  const finalizeInvoice = useCallback(async () => {
-    const result = await executeOperation(
-      (token) => sharePointService.finalizeInvoice(token, invoiceId, lineItems),
-      'Failed to finalize invoice'
-    )
-    
-    success('Invoice finalized successfully!')
-    setInvoice(prev => ({ ...prev, status: 'Finalized' }))
-    
-    return result
-  }, [executeOperation, invoiceId, lineItems, success])
 
   // Load invoice on mount and when invoiceId changes
   useEffect(() => {
@@ -1017,9 +933,7 @@ export const useInvoice = (invoiceId) => {
     lineItems,
     loading,
     error,
-    updateInvoice,
-    deleteInvoice,
-    finalizeInvoice,
+    voidInvoice,
     refreshInvoice: loadInvoice
   }
 }

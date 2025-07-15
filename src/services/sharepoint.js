@@ -914,7 +914,13 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        const sharePointData = transformToSharePoint(invoiceData, 'invoices');
+        // Force status to 'Finalized' - no more drafts
+        const finalizedInvoiceData = {
+          ...invoiceData,
+          status: 'Finalized'
+        };
+
+        const sharePointData = transformToSharePoint(finalizedInvoiceData, 'invoices');
 
         const response = await graphClient
           .api(
@@ -934,15 +940,65 @@ class SharePointService {
   }
 
   /**
-   * Update existing invoice in SharePoint
+   * Finalize an invoice - UPDATED: Added overselling validation
    */
-  async updateInvoice(accessToken, invoiceId, invoiceData) {
+  async finalizeInvoice(accessToken, invoiceId, lineItems) {
     const graphClient = createGraphClient(accessToken);
 
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        const sharePointData = transformToSharePoint(invoiceData, 'invoices');
+        // 1. VALIDATE: Check inventory levels for each line item
+        for (const item of lineItems) {
+          const part = await this.getPartById(accessToken, item.partId);
+          if (!part) {
+            throw new Error(`Part ${item.partId} not found`);
+          }
+          if (part.inventoryOnHand < item.quantity) {
+            throw new Error(
+              `Insufficient stock for ${item.partId}. Available: ${part.inventoryOnHand}, Required: ${item.quantity}`
+            );
+          }
+        }
+
+        // 2. Create "Out" transactions for each line item
+        const transactions = [];
+        for (const item of lineItems) {
+          const transactionData = {
+            partId: item.partId,
+            movementType: 'Out (Sold)',
+            quantity: item.quantity,
+            unitCost: item.unitCost || 0,
+            unitPrice: item.unitPrice || 0,
+            invoice: invoiceId,
+            buyer: item.buyer,
+            notes: `Sale - Invoice ${invoiceId}`
+          };
+
+          const transaction = await this.createTransaction(accessToken, transactionData);
+          transactions.push(transaction);
+        }
+
+        // 3. Update inventory quantities
+        for (const item of lineItems) {
+          const part = await this.getPartById(accessToken, item.partId);
+          const newQuantity = part.inventoryOnHand - item.quantity;
+          
+          await this.updatePart(accessToken, item.partId, {
+            inventoryOnHand: newQuantity
+          });
+        }
+
+        // 4. Calculate total amount
+        const totalAmount = lineItems.reduce((sum, item) => {
+          return sum + (item.quantity * (item.unitPrice || 0));
+        }, 0);
+
+        // 5. Update invoice status to "Finalized"
+        const sharePointData = transformToSharePoint({
+          status: 'Finalized',
+          totalAmount: totalAmount
+        }, 'invoices');
 
         const response = await graphClient
           .api(
@@ -952,9 +1008,12 @@ class SharePointService {
             fields: sharePointData,
           });
 
-        return transformSharePointItem(response, 'invoices');
+        return {
+          invoice: transformSharePointItem(response, 'invoices'),
+          transactions
+        };
       },
-      `Update Invoice ${invoiceId}`
+      `Finalize Invoice ${invoiceId}`
     );
 
     this.clearCache(`invoice_${invoiceId}`);
@@ -963,104 +1022,87 @@ class SharePointService {
   }
 
   /**
-   * Delete invoice from SharePoint
+   * Void an invoice - NEW: Create offsetting transactions
    */
-  async deleteInvoice(accessToken, invoiceId) {
-    const graphClient = createGraphClient(accessToken);
-
-    await this.executeGraphRequest(
-      graphClient,
-      async () => {
-        await graphClient
-          .api(
-            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.invoices}/items/${invoiceId}`
-          )
-          .delete();
-      },
-      `Delete Invoice ${invoiceId}`
-    );
-
-    this.clearCache(`invoice_${invoiceId}`);
-    this.clearCache();
-    return true;
-  }
-
-  /**
-   * Delete multiple invoices from SharePoint
-   */
-  async deleteMultipleInvoices(accessToken, invoiceIds) {
-    const results = { succeeded: 0, failed: 0, errors: [] };
-
-    const deletePromises = invoiceIds.map(async (invoiceId) => {
-      try {
-        await this.deleteInvoice(accessToken, invoiceId);
-        results.succeeded++;
-      } catch (error) {
-        results.failed++;
-        results.errors.push({ invoiceId, error: error.message });
-      }
-    });
-
-    await Promise.all(deletePromises);
-    return results;
-  }
-
-  /**
-   * Finalize an invoice (create transactions and update inventory)
-   * FIXED: Now calculates total amount and sets buyer from line items
-   */
-  async finalizeInvoice(accessToken, invoiceId, lineItems) {
+  async voidInvoice(accessToken, invoiceId) {
     const graphClient = createGraphClient(accessToken);
 
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        // Calculate total amount from line items
-        const totalAmount = lineItems.reduce((sum, item) => {
-          return sum + (item.quantity * (item.unitPrice || 0));
-        }, 0);
-
-        // Get buyer from first line item (assuming all items have same buyer)
-        const buyerInfo = lineItems.length > 0 ? lineItems[0].buyer : '';
+        // 1. Get invoice details to ensure it can be voided
+        const invoice = await this.getInvoiceById(accessToken, invoiceId);
+        if (!invoice) {
+          throw new Error(`Invoice ${invoiceId} not found`);
+        }
         
-        console.log(`💰 Calculated total amount: $${totalAmount}`);
-        console.log(`👤 Setting buyer: ${buyerInfo}`);
+        if (invoice.status === 'Void') {
+          throw new Error('Invoice is already voided');
+        }
 
-        // Update the invoice with status, total, and buyer
-        await this.updateInvoice(accessToken, invoiceId, { 
-          status: 'Finalized',
-          totalAmount: totalAmount,
-          buyer: buyerInfo
+        if (invoice.status !== 'Finalized' && invoice.status !== 'Paid') {
+          throw new Error('Only Finalized or Paid invoices can be voided');
+        }
+
+        // 2. Get original "Out" transactions for this invoice
+        const originalTransactions = await this.getTransactions(accessToken, {
+          filter: `fields/Invoice eq '${invoiceId}' and fields/MovementType eq 'Out (Sold)'`
         });
 
-        // Create transactions for each line item
-        const transactionPromises = lineItems.map(async (item) => {
-          const transactionData = {
-            partId: item.partId,
-            movementType: 'Out (Sold)',
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
+        if (originalTransactions.length === 0) {
+          throw new Error('No transactions found for this invoice');
+        }
+
+        // 3. Create offsetting "In" transactions
+        const voidTransactions = [];
+        for (const transaction of originalTransactions) {
+          const voidTransactionData = {
+            partId: transaction.partId,
+            movementType: 'In (Received)',
+            quantity: transaction.quantity,
+            unitCost: transaction.unitCost || 0,
+            unitPrice: transaction.unitPrice || 0,
             invoice: invoiceId,
-            buyer: item.buyer || '',
-            notes: `Invoice ${invoiceId} finalization`,
+            buyer: transaction.buyer,
+            notes: `Void adjustment - Invoice ${invoiceId} voided`
           };
 
-          return await this.createTransaction(accessToken, transactionData);
-        });
+          const voidTransaction = await this.createTransaction(accessToken, voidTransactionData);
+          voidTransactions.push(voidTransaction);
+        }
 
-        const transactions = await Promise.all(transactionPromises);
+        // 4. Update inventory quantities (restore stock)
+        for (const transaction of originalTransactions) {
+          const part = await this.getPartById(accessToken, transaction.partId);
+          const newQuantity = part.inventoryOnHand + transaction.quantity;
+          
+          await this.updatePart(accessToken, transaction.partId, {
+            inventoryOnHand: newQuantity
+          });
+        }
+
+        // 5. Update invoice status to "Void"
+        const sharePointData = transformToSharePoint({
+          status: 'Void'
+        }, 'invoices');
+
+        const response = await graphClient
+          .api(
+            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.invoices}/items/${invoiceId}`
+          )
+          .patch({
+            fields: sharePointData,
+          });
 
         return {
-          invoiceId,
-          status: 'Finalized',
-          totalAmount: totalAmount,
-          buyer: buyerInfo,
-          transactions,
+          invoice: transformSharePointItem(response, 'invoices'),
+          voidTransactions
         };
       },
-      `Finalize Invoice ${invoiceId}`
+      `Void Invoice ${invoiceId}`
     );
 
+    this.clearCache(`invoice_${invoiceId}`);
     this.clearCache();
     return result;
   }

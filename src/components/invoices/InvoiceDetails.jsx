@@ -303,29 +303,25 @@ const InvoiceDetails = () => {
         </div>
 
         <div className="flex space-x-2">
-          <Link
-            to={`/invoices/${id}/edit`}
-            className="btn btn-secondary"
-          >
-            <Edit3 className="h-4 w-4 mr-2" />
-            Edit
-          </Link>
-          <button
-            onClick={handlePrint}
-            className="btn btn-secondary"
-          >
-            <Printer className="h-4 w-4 mr-2" />
-            Print
-          </button>
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            className="btn btn-danger"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete
-          </button>
-        </div>
-      </div>
+                  {/* REMOVED: Edit button */}
+                  <button
+                    onClick={handlePrint}
+                    className="btn btn-secondary"
+                  >
+                    <Printer className="h-4 w-4 mr-2" />
+                    Print
+                  </button>
+                  {/* NEW: Void button for Finalized/Paid invoices */}
+                  {(invoice.status === 'Finalized' || invoice.status === 'Paid') && (
+                    <button
+                      onClick={() => setShowVoidModal(true)}
+                      className="btn btn-danger"
+                    >
+                      <X className="h-4 w-4 mr-2" />
+                      Void Invoice
+                    </button>
+                  )}
+                </div>
 
       {/* Invoice Details Card */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
