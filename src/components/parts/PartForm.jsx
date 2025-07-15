@@ -371,18 +371,24 @@ const PartForm = () => {
         await updatePart(id, submissionData)
         success('Part updated successfully!')
       } else {
-        await createPart(submissionData)
-        
-        // Create initial stock transaction if needed
+        // *** FIX: For new parts with initial inventory, create part with 0 inventory first ***
         const willCreateTransaction = formData.inventoryOnHand > 0
         
         if (willCreateTransaction) {
-          console.log('Creating initial stock transaction for hybrid solution')
+          // Create part with zero inventory - let the transaction set the correct amount
+          const partDataWithZeroInventory = {
+            ...submissionData,
+            inventoryOnHand: 0  // Start with zero, transaction will set correct amount
+          }
           
+          console.log('Creating part with zero inventory first:', partDataWithZeroInventory)
+          await createPart(partDataWithZeroInventory)
+          
+          console.log('Creating initial stock transaction for hybrid solution')
           await createTransaction({
             partId: submissionData.partId,
             movementType: 'In (Received)',
-            quantity: submissionData.inventoryOnHand,
+            quantity: formData.inventoryOnHand, // Use original inventory amount
             unitCost: submissionData.unitCost,
             supplier: transactionData.supplier || 'Initial Stock',
             notes: transactionData.notes || 'Initial inventory setup'
@@ -390,6 +396,8 @@ const PartForm = () => {
           
           success(`Part created successfully! Initial stock transaction recorded for ${formData.inventoryOnHand} units.`)
         } else {
+          // No initial inventory - create part normally
+          await createPart(submissionData)
           success('Part created successfully!')
         }
       }
@@ -404,13 +412,13 @@ const PartForm = () => {
     }
   }
 
-  const handleCancel = () => {
-    navigate('/parts')
-  }
-
   // =================================================================
   // UTILITY FUNCTIONS
   // =================================================================
+
+  const handleCancel = () => {
+    navigate('/parts')
+  }
   
   const calculateMargin = () => {
     const cost = parseFloat(formData.unitCost) || 0

@@ -112,16 +112,13 @@ const transformSharePointItem = (sharePointItem, listType) => {
     case 'transactions':
       return {
         ...baseItem,
-        // Handle part lookup - may need to be text in future
         partId: fields.Part || '', // Simple text field
         movementType: fields.MovementType,
         quantity: fields.Quantity || 0,
         unitCost: fields.UnitCost || 0,
         unitPrice: fields.UnitPrice || 0,
-        // Handle invoice lookup - may need to be text in future
         invoice: fields.Invoice || '', // Now simple text field
-        // Handle buyer lookup - may need to be text in future
-        buyer: fields.Buyer?.LookupValue || fields.Buyer || '',
+        buyer: fields.Buyer || '', // Now simple text field (Buyer Name)
         notes: fields.Notes || '',
         supplier: fields.Supplier || '',
       };
@@ -130,8 +127,7 @@ const transformSharePointItem = (sharePointItem, listType) => {
       return {
         ...baseItem,
         invoiceNumber: fields.Title,
-        buyer: fields.Buyer?.LookupValue || fields.Buyer || 'Unknown Buyer',
-        buyerId: fields.Buyer?.LookupId || null,
+        buyer: fields.Buyer || 'Unknown Buyer', // Now simple text field
         invoiceDate: fields.InvoiceDate,
         totalAmount: fields.TotalAmount || 0,
         status: fields.Status || 'Draft',
@@ -214,7 +210,7 @@ const transformToSharePoint = (data, listType) => {
     case 'invoices':
       return {
         Title: data.invoiceNumber,
-        Buyer: data.buyerId || data.buyer,
+        Buyer: data.buyer, // Direct text value (buyer name)
         InvoiceDate: data.invoiceDate,
         TotalAmount: data.totalAmount || 0,
         Status: data.status || 'Draft',
@@ -1011,6 +1007,7 @@ class SharePointService {
 
   /**
    * Finalize an invoice (create transactions and update inventory)
+   * FIXED: Now calculates total amount and sets buyer from line items
    */
   async finalizeInvoice(accessToken, invoiceId, lineItems) {
     const graphClient = createGraphClient(accessToken);
@@ -1018,8 +1015,23 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        // First, update the invoice status to 'Finalized'
-        await this.updateInvoice(accessToken, invoiceId, { status: 'Finalized' });
+        // Calculate total amount from line items
+        const totalAmount = lineItems.reduce((sum, item) => {
+          return sum + (item.quantity * (item.unitPrice || 0));
+        }, 0);
+
+        // Get buyer from first line item (assuming all items have same buyer)
+        const buyerInfo = lineItems.length > 0 ? lineItems[0].buyer : '';
+        
+        console.log(`💰 Calculated total amount: $${totalAmount}`);
+        console.log(`👤 Setting buyer: ${buyerInfo}`);
+
+        // Update the invoice with status, total, and buyer
+        await this.updateInvoice(accessToken, invoiceId, { 
+          status: 'Finalized',
+          totalAmount: totalAmount,
+          buyer: buyerInfo
+        });
 
         // Create transactions for each line item
         const transactionPromises = lineItems.map(async (item) => {
@@ -1041,6 +1053,8 @@ class SharePointService {
         return {
           invoiceId,
           status: 'Finalized',
+          totalAmount: totalAmount,
+          buyer: buyerInfo,
           transactions,
         };
       },
@@ -1053,6 +1067,7 @@ class SharePointService {
 
   /**
    * Get line items for an invoice (transactions with this invoice reference)
+   * FIXED: Ensure method is properly within SharePointService class
    */
   async getInvoiceLineItems(accessToken, invoiceId) {
     return await this.getTransactions(accessToken, {
