@@ -1,664 +1,717 @@
-import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { 
-  FileText, 
-  Plus, 
-  Search, 
-  Filter, 
-  Eye, 
-  Edit3, 
-  Trash2,
-  Download,
-  Calendar,
-  DollarSign,
-  User,
-  AlertCircle
-} from 'lucide-react'
-import { useAuth } from '../../context/AuthContext'
+import React, { useState, useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
-import sharePointService from '../../services/sharepoint'
 import LoadingSpinner from '../shared/LoadingSpinner'
 
+// Import SharePoint hooks (NOW AVAILABLE)
+import { useInvoices, useBuyers } from '../../hooks/useSharePoint'
+
+// Import the SharePoint test component
+import SharePointConnectionTest from './SharePointConnectionTest'
+
+// =================================================================
+// INVOICE LIST COMPONENT - FULL SHAREPOINT INTEGRATION
+// =================================================================
 const InvoiceList = () => {
-  const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
-  const { showToast } = useToast()
+  const { success, error, info } = useToast()
+  
+  // =================================================================
+  // INTEGRATION MODE TOGGLE (Same as Parts)
+  // =================================================================
+  const [integrationMode, setIntegrationMode] = useState('mock') // Start with mock, then test, then live
+  
+  // =================================================================
+  // SHAREPOINT HOOKS
+  // =================================================================
+  const { 
+    invoices: sharePointInvoices, 
+    loading: sharePointLoading, 
+    error: sharePointError,
+    deleteMultipleInvoices,
+    refreshInvoices
+  } = useInvoices()
+  
+  const { 
+    buyerNames: sharePointBuyers, 
+    loading: buyersLoading 
+  } = useBuyers()
 
-  // State
-  const [invoices, setInvoices] = useState([])
-  const [filteredInvoices, setFilteredInvoices] = useState([])
-  const [loading, setLoading] = useState(true)
+  // =================================================================
+  // MOCK DATA (FALLBACK - Same Pattern as Parts)
+  // =================================================================
+  const [mockInvoices] = useState([
+    {
+      id: '1',
+      invoiceNumber: 'INV-2025-001',
+      buyer: 'AutoZone Distribution',
+      buyerId: '1',
+      invoiceDate: '2025-01-10',
+      totalAmount: 1250.75,
+      status: 'Finalized',
+      created: '2025-01-10',
+      modified: '2025-01-12'
+    },
+    {
+      id: '2',
+      invoiceNumber: 'INV-2025-002',
+      buyer: 'O\'Reilly Auto Parts',
+      buyerId: '2',
+      invoiceDate: '2025-01-12',
+      totalAmount: 875.50,
+      status: 'Draft',
+      created: '2025-01-12',
+      modified: '2025-01-12'
+    },
+    {
+      id: '3',
+      invoiceNumber: 'INV-2025-003',
+      buyer: 'NAPA Auto Parts',
+      buyerId: '3',
+      invoiceDate: '2025-01-14',
+      totalAmount: 2100.25,
+      status: 'Paid',
+      created: '2025-01-14',
+      modified: '2025-01-14'
+    },
+    {
+      id: '4',
+      invoiceNumber: 'INV-2025-004',
+      buyer: 'Advance Auto Parts',
+      buyerId: '4',
+      invoiceDate: '2025-01-15',
+      totalAmount: 450.00,
+      status: 'Void',
+      created: '2025-01-15',
+      modified: '2025-01-15'
+    }
+  ])
+
+  const mockBuyers = ['AutoZone Distribution', 'O\'Reilly Auto Parts', 'NAPA Auto Parts', 'Advance Auto Parts']
+
+  // =================================================================
+  // DATA SOURCE SELECTION (Same as Parts)
+  // =================================================================
+  const invoices = integrationMode === 'live' ? sharePointInvoices : mockInvoices
+  const buyers = integrationMode === 'live' ? sharePointBuyers : mockBuyers
+  const loading = integrationMode === 'live' ? sharePointLoading || buyersLoading : false
+  const dataError = integrationMode === 'live' ? sharePointError : null
+
+  // =================================================================
+  // LOCAL STATE FOR UI (Same as Parts)
+  // =================================================================
   const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState('All')
-  const [dateFilter, setDateFilter] = useState('All')
-  const [sortBy, setSortBy] = useState('invoiceDate')
-  const [sortOrder, setSortOrder] = useState('desc')
-  const [deleteModalOpen, setDeleteModalOpen] = useState(false)
-  const [invoiceToDelete, setInvoiceToDelete] = useState(null)
+  const [statusFilter, setStatusFilter] = useState('')
+  const [buyerFilter, setBuyerFilter] = useState('')
+  const [sortConfig, setSortConfig] = useState({ key: 'invoiceDate', direction: 'desc' })
+  const [selectedInvoices, setSelectedInvoices] = useState([])
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
 
-  // Status options for filtering
-  const statusOptions = ['All', 'Draft', 'Finalized', 'Paid', 'Void']
-  const dateRangeOptions = [
-    'All',
-    'Today',
-    'This Week',
-    'This Month',
-    'Last 30 Days',
-    'This Quarter',
-    'This Year'
-  ]
-
-  // Load invoices on component mount
-  useEffect(() => {
-    if (isAuthenticated) {
-      loadInvoices()
-    }
-  }, [isAuthenticated])
-
-  // Apply filters and search when dependencies change
-  useEffect(() => {
-    applyFiltersAndSearch()
-  }, [invoices, searchTerm, statusFilter, dateFilter, sortBy, sortOrder])
-
-  /**
-   * Load all invoices from SharePoint
-   */
-  const loadInvoices = async () => {
-    try {
-      setLoading(true)
-      const response = await sharePointService.getInvoices({
-        expand: ['Buyer'],
-        orderBy: 'Created desc',
-        top: 1000
-      })
+  // =================================================================
+  // FILTERING AND SORTING (Same Pattern as Parts)
+  // =================================================================
+  const filteredInvoices = useMemo(() => {
+    let filtered = invoices.filter(invoice => {
+      const matchesSearch = searchTerm === '' || 
+        invoice.invoiceNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        invoice.buyer.toLowerCase().includes(searchTerm.toLowerCase())
       
-      // Transform the data to match our component structure
-      const transformedInvoices = response.map(invoice => ({
-        id: invoice.id,
-        invoiceNumber: invoice.invoiceNumber, // Use transformed property
-        buyer: invoice.buyer, // Use transformed property  
-        buyerId: invoice.buyerId, // Use transformed property
-        invoiceDate: new Date(invoice.invoiceDate),
-        totalAmount: invoice.totalAmount,
-        status: invoice.status,
-        createdBy: invoice.createdBy,
-        createdDate: new Date(invoice.created),
-        modifiedDate: new Date(invoice.modified)
-      }))
+      const matchesStatus = statusFilter === '' || invoice.status === statusFilter
+      const matchesBuyer = buyerFilter === '' || invoice.buyer === buyerFilter
+      
+      return matchesSearch && matchesStatus && matchesBuyer
+    })
 
-      setInvoices(transformedInvoices)
-    } catch (error) {
-      console.error('Error loading invoices:', error)
-      showToast('Failed to load invoices. Please try again.', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  /**
-   * Apply search and filter logic
-   */
-  const applyFiltersAndSearch = () => {
-    let filtered = [...invoices]
-
-    // Apply search filter
-    if (searchTerm.trim()) {
-      const searchLower = searchTerm.toLowerCase()
-      filtered = filtered.filter(invoice =>
-        invoice.invoiceNumber.toLowerCase().includes(searchLower) ||
-        invoice.buyer.toLowerCase().includes(searchLower) ||
-        invoice.status.toLowerCase().includes(searchLower)
-      )
-    }
-
-    // Apply status filter
-    if (statusFilter !== 'All') {
-      filtered = filtered.filter(invoice => invoice.status === statusFilter)
-    }
-
-    // Apply date filter
-    if (dateFilter !== 'All') {
-      const now = new Date()
-      const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-      const startOfWeek = new Date(startOfDay)
-      startOfWeek.setDate(startOfDay.getDate() - startOfDay.getDay())
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-      const startOfQuarter = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1)
-      const startOfYear = new Date(now.getFullYear(), 0, 1)
-      const thirtyDaysAgo = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000))
-
-      filtered = filtered.filter(invoice => {
-        const invoiceDate = invoice.invoiceDate
-        switch (dateFilter) {
-          case 'Today':
-            return invoiceDate >= startOfDay
-          case 'This Week':
-            return invoiceDate >= startOfWeek
-          case 'This Month':
-            return invoiceDate >= startOfMonth
-          case 'Last 30 Days':
-            return invoiceDate >= thirtyDaysAgo
-          case 'This Quarter':
-            return invoiceDate >= startOfQuarter
-          case 'This Year':
-            return invoiceDate >= startOfYear
-          default:
-            return true
+    // Apply sorting
+    if (sortConfig.key) {
+      filtered.sort((a, b) => {
+        const aValue = a[sortConfig.key]
+        const bValue = b[sortConfig.key]
+        
+        if (typeof aValue === 'number' && typeof bValue === 'number') {
+          return sortConfig.direction === 'asc' ? aValue - bValue : bValue - aValue
+        } else {
+          const aStr = String(aValue).toLowerCase()
+          const bStr = String(bValue).toLowerCase()
+          if (aStr < bStr) return sortConfig.direction === 'asc' ? -1 : 1
+          if (aStr > bStr) return sortConfig.direction === 'asc' ? 1 : -1
+          return 0
         }
       })
     }
 
-    // Apply sorting
-    filtered.sort((a, b) => {
-      let aValue, bValue
+    return filtered
+  }, [invoices, searchTerm, statusFilter, buyerFilter, sortConfig])
 
-      switch (sortBy) {
-        case 'invoiceNumber':
-          aValue = a.invoiceNumber
-          bValue = b.invoiceNumber
-          break
-        case 'buyer':
-          aValue = a.buyer
-          bValue = b.buyer
-          break
-        case 'totalAmount':
-          aValue = a.totalAmount
-          bValue = b.totalAmount
-          break
-        case 'status':
-          aValue = a.status
-          bValue = b.status
-          break
-        case 'invoiceDate':
-        default:
-          aValue = a.invoiceDate
-          bValue = b.invoiceDate
-          break
-      }
-
-      if (sortOrder === 'asc') {
-        return aValue > bValue ? 1 : -1
-      } else {
-        return aValue < bValue ? 1 : -1
-      }
-    })
-
-    setFilteredInvoices(filtered)
+  // =================================================================
+  // EVENT HANDLERS (Same Pattern as Parts)
+  // =================================================================
+  const handleSort = (key) => {
+    setSortConfig(prevConfig => ({
+      key,
+      direction: prevConfig.key === key && prevConfig.direction === 'asc' ? 'desc' : 'asc'
+    }))
   }
 
-  /**
-   * Handle sort changes
-   */
-  const handleSort = (field) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      setSelectedInvoices(filteredInvoices.map(invoice => invoice.id))
     } else {
-      setSortBy(field)
-      setSortOrder('asc')
+      setSelectedInvoices([])
     }
   }
 
-  /**
-   * Handle invoice deletion
-   */
-  const handleDeleteInvoice = async (invoice) => {
+  const handleSelectInvoice = (invoiceId) => {
+    setSelectedInvoices(prev => 
+      prev.includes(invoiceId) 
+        ? prev.filter(id => id !== invoiceId)
+        : [...prev, invoiceId]
+    )
+  }
+
+  const handleDeleteSelected = async () => {
     try {
-      await sharePointService.deleteInvoice(invoice.id)
-      showToast(`Invoice ${invoice.invoiceNumber} deleted successfully`, 'success')
-      loadInvoices() // Reload the list
-      setDeleteModalOpen(false)
-      setInvoiceToDelete(null)
-    } catch (error) {
-      console.error('Error deleting invoice:', error)
-      showToast('Failed to delete invoice. Please try again.', 'error')
+      if (integrationMode === 'live') {
+        // Use SharePoint service for real deletions
+        const result = await deleteMultipleInvoices(selectedInvoices)
+        
+        if (result.succeeded > 0) {
+          success(`Successfully deleted ${result.succeeded} invoice(s)`)
+        }
+        
+        if (result.failed > 0) {
+          error(`Failed to delete ${result.failed} invoice(s)`)
+        }
+      } else {
+        // Mock deletion for testing
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        success(`Mock deletion: ${selectedInvoices.length} invoice(s) would be deleted`)
+      }
+      
+      setSelectedInvoices([])
+      setShowDeleteModal(false)
+      
+    } catch (err) {
+      console.error('Error deleting invoices:', err)
+      error('Failed to delete invoices. Please try again.')
     }
   }
 
-  /**
-   * Format currency values
-   */
+  const handleExportInvoices = () => {
+    info('Export functionality coming soon!')
+  }
+
+  const handleRefreshData = () => {
+    if (integrationMode === 'live') {
+      refreshInvoices()
+      success('Invoice data refreshed!')
+    } else {
+      info('Refresh only works in live mode')
+    }
+  }
+
+  // =================================================================
+  // UTILITY FUNCTIONS (Same as Parts)
+  // =================================================================
+  const getStatusBadge = (status) => {
+    const statusConfig = {
+      'Draft': { text: 'Draft', color: 'bg-yellow-100 text-yellow-800' },
+      'Finalized': { text: 'Finalized', color: 'bg-blue-100 text-blue-800' },
+      'Paid': { text: 'Paid', color: 'bg-green-100 text-green-800' },
+      'Void': { text: 'Void', color: 'bg-red-100 text-red-800' }
+    }
+    
+    return statusConfig[status] || { text: status, color: 'bg-gray-100 text-gray-800' }
+  }
+
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD'
-    }).format(amount || 0)
+    }).format(amount)
   }
 
-  /**
-   * Format dates
-   */
-  const formatDate = (date) => {
-    return new Intl.DateTimeFormat('en-US', {
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
-    }).format(date)
+    })
   }
 
-  /**
-   * Get status badge styling
-   */
-  const getStatusBadge = (status) => {
-    const baseClasses = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium'
-    
-    switch (status) {
-      case 'Draft':
-        return `${baseClasses} bg-gray-100 text-gray-800`
-      case 'Finalized':
-        return `${baseClasses} bg-blue-100 text-blue-800`
-      case 'Paid':
-        return `${baseClasses} bg-green-100 text-green-800`
-      case 'Void':
-        return `${baseClasses} bg-red-100 text-red-800`
-      default:
-        return `${baseClasses} bg-gray-100 text-gray-800`
-    }
+  const getSortIcon = (columnKey) => {
+    if (sortConfig.key !== columnKey) return '↕️'
+    return sortConfig.direction === 'asc' ? '↑' : '↓'
   }
 
-  /**
-   * Calculate summary statistics
-   */
-  const getSummaryStats = () => {
+  // Calculate summary stats
+  const summaryStats = useMemo(() => {
     const totalInvoices = filteredInvoices.length
     const totalAmount = filteredInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0)
     const draftCount = filteredInvoices.filter(inv => inv.status === 'Draft').length
     const paidCount = filteredInvoices.filter(inv => inv.status === 'Paid').length
+    const finalizedCount = filteredInvoices.filter(inv => inv.status === 'Finalized').length
 
-    return { totalInvoices, totalAmount, draftCount, paidCount }
+    return { totalInvoices, totalAmount, draftCount, paidCount, finalizedCount }
+  }, [filteredInvoices])
+
+  // =================================================================
+  // INTEGRATION MODE DISPLAY (Same as Parts)
+  // =================================================================
+  if (integrationMode === 'test') {
+    return <SharePointConnectionTest />
   }
 
-  const stats = getSummaryStats()
-
+  // =================================================================
+  // LOADING STATE (Same as Parts)
+  // =================================================================
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <LoadingSpinner size="lg" />
+      <div className="min-h-[400px] flex items-center justify-center">
+        <div className="text-center">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-600">Loading invoices from SharePoint...</p>
+        </div>
       </div>
     )
   }
 
+  // =================================================================
+  // ERROR STATE (Same as Parts)
+  // =================================================================
+  if (dataError) {
+    return (
+      <div className="min-h-[400px] flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-400 text-4xl mb-4">❌</div>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">SharePoint Connection Error</h3>
+          <p className="text-gray-600 mb-4">{dataError}</p>
+          <div className="space-x-3">
+            <button
+              onClick={() => setIntegrationMode('mock')}
+              className="btn btn-secondary"
+            >
+              Use Mock Data
+            </button>
+            <button
+              onClick={() => setIntegrationMode('test')}
+              className="btn btn-primary"
+            >
+              Test Connection
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // =================================================================
+  // MAIN RENDER
+  // =================================================================
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+      {/* Integration Mode Toggle (Same as Parts) */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h4 className="font-medium text-blue-900">Integration Mode</h4>
+            <p className="text-sm text-blue-700">
+              {integrationMode === 'mock' && 'Using mock data for development'}
+              {integrationMode === 'test' && 'Testing SharePoint connection'}
+              {integrationMode === 'live' && 'Connected to live SharePoint data'}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setIntegrationMode('test')}
+              className={`px-3 py-1 text-xs rounded ${
+                integrationMode === 'test' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-white text-blue-600 border border-blue-300'
+              }`}
+            >
+              🧪 Test
+            </button>
+            <button
+              onClick={() => setIntegrationMode('mock')}
+              className={`px-3 py-1 text-xs rounded ${
+                integrationMode === 'mock' 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-white text-blue-600 border border-blue-300'
+              }`}
+            >
+              🔧 Mock
+            </button>
+            <button
+              onClick={() => setIntegrationMode('live')}
+              className={`px-3 py-1 text-xs rounded ${
+                integrationMode === 'live' 
+                  ? 'bg-green-600 text-white' 
+                  : 'bg-white text-green-600 border border-green-300'
+              }`}
+            >
+              🚀 Live
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Header Section (Same Pattern as Parts) */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <FileText className="h-6 w-6 text-blue-600" />
-            Invoices
-          </h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage customer invoices and sales transactions
+          <h1 className="text-2xl font-bold text-gray-900">Invoice Management</h1>
+          <p className="text-gray-600">
+            Showing {filteredInvoices.length} of {invoices.length} invoices
+            {integrationMode === 'live' && <span className="text-green-600 ml-2">• Live Data</span>}
+            {integrationMode === 'mock' && <span className="text-blue-600 ml-2">• Mock Data</span>}
           </p>
         </div>
-        <div className="mt-4 sm:mt-0">
+        
+        <div className="flex flex-col sm:flex-row gap-3">
+          {integrationMode === 'live' && (
+            <button
+              onClick={handleRefreshData}
+              className="btn btn-outline"
+            >
+              🔄 Refresh
+            </button>
+          )}
+          
           <button
-            onClick={() => navigate('/invoices/new')}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            onClick={handleExportInvoices}
+            className="btn btn-secondary"
           >
-            <Plus className="h-4 w-4 mr-2" />
-            New Invoice
+            📊 Export
           </button>
+          
+          <Link to="/invoices/new" className="btn btn-primary">
+            ➕ Create Invoice
+          </Link>
         </div>
       </div>
 
-      {/* Summary Stats */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <FileText className="h-6 w-6 text-gray-400" />
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">
-                    Total Invoices
-                  </dt>
-                  <dd className="text-lg font-medium text-gray-900">
-                    {stats.totalInvoices}
-                  </dd>
-                </dl>
-              </div>
-            </div>
-          </div>
+      {/* Summary Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="text-sm font-medium text-gray-500 mb-1">Total Invoices</div>
+          <div className="text-2xl font-bold text-gray-900">{summaryStats.totalInvoices}</div>
         </div>
-
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <DollarSign className="h-6 w-6 text-gray-400" />
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">
-                    Total Value
-                  </dt>
-                  <dd className="text-lg font-medium text-gray-900">
-                    {formatCurrency(stats.totalAmount)}
-                  </dd>
-                </dl>
-              </div>
-            </div>
-          </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="text-sm font-medium text-gray-500 mb-1">Total Amount</div>
+          <div className="text-2xl font-bold text-green-600">{formatCurrency(summaryStats.totalAmount)}</div>
         </div>
-
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <Edit3 className="h-6 w-6 text-gray-400" />
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">
-                    Draft Invoices
-                  </dt>
-                  <dd className="text-lg font-medium text-gray-900">
-                    {stats.draftCount}
-                  </dd>
-                </dl>
-              </div>
-            </div>
-          </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="text-sm font-medium text-gray-500 mb-1">Draft</div>
+          <div className="text-2xl font-bold text-yellow-600">{summaryStats.draftCount}</div>
         </div>
-
-        <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="p-5">
-            <div className="flex items-center">
-              <div className="flex-shrink-0">
-                <AlertCircle className="h-6 w-6 text-gray-400" />
-              </div>
-              <div className="ml-5 w-0 flex-1">
-                <dl>
-                  <dt className="text-sm font-medium text-gray-500 truncate">
-                    Paid Invoices
-                  </dt>
-                  <dd className="text-lg font-medium text-gray-900">
-                    {stats.paidCount}
-                  </dd>
-                </dl>
-              </div>
-            </div>
-          </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="text-sm font-medium text-gray-500 mb-1">Finalized</div>
+          <div className="text-2xl font-bold text-blue-600">{summaryStats.finalizedCount}</div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="text-sm font-medium text-gray-500 mb-1">Paid</div>
+          <div className="text-2xl font-bold text-green-600">{summaryStats.paidCount}</div>
         </div>
       </div>
 
-      {/* Filters and Search */}
-      <div className="bg-white shadow rounded-lg">
-        <div className="p-6">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {/* Search */}
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Search className="h-5 w-5 text-gray-400" />
-              </div>
-              <input
-                type="text"
-                placeholder="Search invoices..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+      {/* Filters Section (Same Pattern as Parts) */}
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Search */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Search Invoices
+            </label>
+            <input
+              type="text"
+              placeholder="Search by invoice # or buyer..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="input"
+            />
+          </div>
 
-            {/* Status Filter */}
-            <div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-md leading-5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-              >
-                {statusOptions.map(status => (
-                  <option key={status} value={status}>
-                    {status === 'All' ? 'All Statuses' : status}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* Status Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Status
+            </label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="input"
+            >
+              <option value="">All Statuses</option>
+              <option value="Draft">Draft</option>
+              <option value="Finalized">Finalized</option>
+              <option value="Paid">Paid</option>
+              <option value="Void">Void</option>
+            </select>
+          </div>
 
-            {/* Date Filter */}
-            <div>
-              <select
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-md leading-5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-              >
-                {dateRangeOptions.map(range => (
-                  <option key={range} value={range}>
-                    {range === 'All' ? 'All Dates' : range}
-                  </option>
-                ))}
-              </select>
-            </div>
+          {/* Buyer Filter */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Buyer
+            </label>
+            <select
+              value={buyerFilter}
+              onChange={(e) => setBuyerFilter(e.target.value)}
+              className="input"
+            >
+              <option value="">All Buyers</option>
+              {buyers.map(buyer => (
+                <option key={buyer} value={buyer}>{buyer}</option>
+              ))}
+            </select>
+          </div>
 
-            {/* Sort Options */}
-            <div>
-              <select
-                value={`${sortBy}-${sortOrder}`}
-                onChange={(e) => {
-                  const [field, order] = e.target.value.split('-')
-                  setSortBy(field)
-                  setSortOrder(order)
-                }}
-                className="block w-full px-3 py-2 border border-gray-300 rounded-md leading-5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="invoiceDate-desc">Newest First</option>
-                <option value="invoiceDate-asc">Oldest First</option>
-                <option value="invoiceNumber-asc">Invoice # A-Z</option>
-                <option value="invoiceNumber-desc">Invoice # Z-A</option>
-                <option value="buyer-asc">Buyer A-Z</option>
-                <option value="buyer-desc">Buyer Z-A</option>
-                <option value="totalAmount-desc">Highest Amount</option>
-                <option value="totalAmount-asc">Lowest Amount</option>
-                <option value="status-asc">Status A-Z</option>
-              </select>
-            </div>
+          {/* Clear Filters */}
+          <div className="flex items-end">
+            <button
+              onClick={() => {
+                setSearchTerm('')
+                setStatusFilter('')
+                setBuyerFilter('')
+                setSortConfig({ key: 'invoiceDate', direction: 'desc' })
+              }}
+              className="btn btn-secondary w-full"
+            >
+              Clear Filters
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Invoices Table */}
-      <div className="bg-white shadow overflow-hidden sm:rounded-md">
-        <div className="px-4 py-5 sm:p-6">
-          {filteredInvoices.length === 0 ? (
-            <div className="text-center py-12">
-              <FileText className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No invoices found</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                {searchTerm || statusFilter !== 'All' || dateFilter !== 'All'
-                  ? 'No invoices match your current filters.'
-                  : 'Get started by creating your first invoice.'
-                }
-              </p>
-              {(!searchTerm && statusFilter === 'All' && dateFilter === 'All') && (
-                <div className="mt-6">
-                  <button
-                    onClick={() => navigate('/invoices/new')}
-                    className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+      {/* Bulk Actions (Same Pattern as Parts) */}
+      {selectedInvoices.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-blue-800 font-medium">
+              {selectedInvoices.length} invoice(s) selected
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="btn btn-danger"
+              >
+                🗑️ Delete Selected
+              </button>
+              <button
+                onClick={() => setSelectedInvoices([])}
+                className="btn btn-secondary"
+              >
+                Clear Selection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoices Table (Same Pattern as Parts) */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        {filteredInvoices.length === 0 ? (
+          <div className="text-center py-12">
+            <div className="text-gray-400 text-4xl mb-4">📋</div>
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No invoices found</h3>
+            <p className="text-gray-600 mb-4">
+              {searchTerm || statusFilter || buyerFilter
+                ? 'Try adjusting your search criteria.'
+                : 'Get started by creating your first invoice.'
+              }
+            </p>
+            <Link to="/invoices/new" className="btn btn-primary">
+              Create First Invoice
+            </Link>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left">
+                    <input
+                      type="checkbox"
+                      checked={selectedInvoices.length === filteredInvoices.length && filteredInvoices.length > 0}
+                      onChange={handleSelectAll}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </th>
+                  
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('invoiceNumber')}
                   >
-                    <Plus className="h-4 w-4 mr-2" />
-                    New Invoice
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th 
-                      onClick={() => handleSort('invoiceNumber')}
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    Invoice # {getSortIcon('invoiceNumber')}
+                  </th>
+                  
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('buyer')}
+                  >
+                    Buyer {getSortIcon('buyer')}
+                  </th>
+                  
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('invoiceDate')}
+                  >
+                    Date {getSortIcon('invoiceDate')}
+                  </th>
+                  
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('totalAmount')}
+                  >
+                    Total Amount {getSortIcon('totalAmount')}
+                  </th>
+                  
+                  <th
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                    onClick={() => handleSort('status')}
+                  >
+                    Status {getSortIcon('status')}
+                  </th>
+                  
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredInvoices.map((invoice) => {
+                  const statusBadge = getStatusBadge(invoice.status)
+                  
+                  return (
+                    <tr
+                      key={invoice.id}
+                      className={`hover:bg-gray-50 ${selectedInvoices.includes(invoice.id) ? 'bg-blue-50' : ''}`}
                     >
-                      Invoice #
-                      {sortBy === 'invoiceNumber' && (
-                        <span className="ml-1">
-                          {sortOrder === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </th>
-                    <th 
-                      onClick={() => handleSort('buyer')}
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                    >
-                      Buyer
-                      {sortBy === 'buyer' && (
-                        <span className="ml-1">
-                          {sortOrder === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </th>
-                    <th 
-                      onClick={() => handleSort('invoiceDate')}
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                    >
-                      Date
-                      {sortBy === 'invoiceDate' && (
-                        <span className="ml-1">
-                          {sortOrder === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </th>
-                    <th 
-                      onClick={() => handleSort('totalAmount')}
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                    >
-                      Total Amount
-                      {sortBy === 'totalAmount' && (
-                        <span className="ml-1">
-                          {sortOrder === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </th>
-                    <th 
-                      onClick={() => handleSort('status')}
-                      className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                    >
-                      Status
-                      {sortBy === 'status' && (
-                        <span className="ml-1">
-                          {sortOrder === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredInvoices.map((invoice) => (
-                    <tr key={invoice.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
+                        <input
+                          type="checkbox"
+                          checked={selectedInvoices.includes(invoice.id)}
+                          onChange={() => handleSelectInvoice(invoice.id)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </td>
+                      
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Link
+                          to={`/invoices/${invoice.id}`}
+                          className="text-blue-600 hover:text-blue-800 font-medium"
+                        >
                           {invoice.invoiceNumber}
-                        </div>
+                        </Link>
                       </td>
+                      
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <User className="h-4 w-4 text-gray-400 mr-2" />
-                          <div className="text-sm text-gray-900">
-                            {invoice.buyer}
-                          </div>
-                        </div>
+                        <div className="text-sm text-gray-900">{invoice.buyer}</div>
                       </td>
+                      
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <Calendar className="h-4 w-4 text-gray-400 mr-2" />
-                          <div className="text-sm text-gray-900">
-                            {formatDate(invoice.invoiceDate)}
-                          </div>
-                        </div>
+                        <span className="text-sm text-gray-900">{formatDate(invoice.invoiceDate)}</span>
                       </td>
+                      
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
+                        <span className="text-sm font-medium text-gray-900">
                           {formatCurrency(invoice.totalAmount)}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={getStatusBadge(invoice.status)}>
-                          {invoice.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div className="flex justify-end space-x-2">
+                      
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusBadge.color}`}>
+                          {statusBadge.text}
+                        </span>
+                      </td>
+                      
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <div className="flex space-x-2">
                           <Link
                             to={`/invoices/${invoice.id}`}
-                            className="text-blue-600 hover:text-blue-900 p-1 rounded"
-                            title="View Invoice"
+                            className="text-blue-600 hover:text-blue-800"
+                            title="View Details"
                           >
-                            <Eye className="h-4 w-4" />
+                            👁️
                           </Link>
                           {invoice.status === 'Draft' && (
                             <Link
                               to={`/invoices/${invoice.id}/edit`}
-                              className="text-green-600 hover:text-green-900 p-1 rounded"
+                              className="text-yellow-600 hover:text-yellow-800"
                               title="Edit Invoice"
                             >
-                              <Edit3 className="h-4 w-4" />
+                              ✏️
                             </Link>
                           )}
-                          <button
-                            onClick={() => {
-                              setInvoiceToDelete(invoice)
-                              setDeleteModalOpen(true)
-                            }}
-                            className="text-red-600 hover:text-red-900 p-1 rounded"
-                            title="Delete Invoice"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
                         </div>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* Delete Confirmation Modal */}
-      {deleteModalOpen && invoiceToDelete && (
+      {/* Delete Confirmation Modal (Same as Parts) */}
+      {showDeleteModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3 text-center">
               <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
-                <Trash2 className="h-6 w-6 text-red-600" />
+                <span className="text-red-600 text-xl">⚠️</span>
               </div>
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mt-4">
-                Delete Invoice
+              <h3 className="text-lg font-medium text-gray-900 mt-4">
+                Delete Selected Invoices
               </h3>
               <div className="mt-2 px-7 py-3">
                 <p className="text-sm text-gray-500">
-                  Are you sure you want to delete invoice{' '}
-                  <span className="font-medium">{invoiceToDelete.invoiceNumber}</span>?
+                  Are you sure you want to delete {selectedInvoices.length} selected invoice(s)? 
                   This action cannot be undone.
                 </p>
+                {integrationMode === 'mock' && (
+                  <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded">
+                    <p className="text-xs text-blue-600">
+                      ℹ️ Mock mode: No actual data will be deleted
+                    </p>
+                  </div>
+                )}
               </div>
               <div className="items-center px-4 py-3">
-                <div className="flex justify-center space-x-3">
+                <div className="flex gap-3">
                   <button
-                    onClick={() => {
-                      setDeleteModalOpen(false)
-                      setInvoiceToDelete(null)
-                    }}
-                    className="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md w-24 shadow-sm hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300"
+                    onClick={handleDeleteSelected}
+                    className="btn btn-danger flex-1"
                   >
-                    Cancel
+                    {integrationMode === 'mock' ? 'Mock Delete' : 'Delete'}
                   </button>
                   <button
-                    onClick={() => handleDeleteInvoice(invoiceToDelete)}
-                    className="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md w-24 shadow-sm hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-300"
+                    onClick={() => setShowDeleteModal(false)}
+                    className="btn btn-secondary flex-1"
                   >
-                    Delete
+                    Cancel
                   </button>
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Debug Info (only in dev mode) - Same as Parts */}
+      {import.meta.env.VITE_DEV_MODE === 'true' && (
+        <div className="bg-gray-100 rounded-lg p-4 text-xs text-gray-600">
+          <h4 className="font-medium mb-2">Debug Info</h4>
+          <div className="space-y-1">
+            <p>Integration Mode: {integrationMode}</p>
+            <p>Invoices Count: {invoices.length}</p>
+            <p>Buyers Count: {buyers.length}</p>
+            <p>Loading: {loading ? 'Yes' : 'No'}</p>
+            <p>Error: {dataError || 'None'}</p>
+            <p>SharePoint Loading: {sharePointLoading ? 'Yes' : 'No'}</p>
+            <p>Buyers Loading: {buyersLoading ? 'Yes' : 'No'}</p>
+            <p>Selected: {selectedInvoices.length}</p>
           </div>
         </div>
       )}
