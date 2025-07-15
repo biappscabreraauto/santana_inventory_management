@@ -84,8 +84,9 @@ const transformSharePointItem = (sharePointItem, listType) => {
         ...baseItem,
         partId: fields.Title,
         description: fields.Description,
-        // Handle lookup field properly - get the text value, not the ID
-        category: fields.Category?.LookupValue || fields.Category?.lookupValue || fields.Category,
+        // Handle lookup field properly - get both the text value and ID
+        category: fields.Category || 'Uncategorized',
+        categoryId: fields.CategoryLookupId || null,
         inventoryOnHand: fields.InventoryOnHand || 0,
         unitCost: fields.UnitCost || 0,
         unitPrice: fields.UnitPrice || 0,
@@ -285,6 +286,52 @@ class SharePointService {
       } else {
         throw new Error(`Operation failed: ${error.message || 'Unknown error'}`);
       }
+    }
+  }
+
+  /**
+   * DIAGNOSTIC: Test the actual API response format
+   */
+  async testLookupFieldResponse(accessToken) {
+    const graphClient = createGraphClient(accessToken);
+    
+    try {
+      console.log('🔍 Testing actual SharePoint API response format...');
+      
+      // Get a sample part without transformation
+      const rawResponse = await graphClient
+        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
+        .expand('fields')
+        .top(1)
+        .get();
+      
+      if (rawResponse.value.length > 0) {
+        const sampleItem = rawResponse.value[0];
+        console.log('📥 Raw SharePoint item:', sampleItem);
+        console.log('📥 Raw fields:', sampleItem.fields);
+        console.log('📥 All field keys:', Object.keys(sampleItem.fields));
+        
+        // Look for category-related fields
+        const categoryFields = Object.keys(sampleItem.fields).filter(key => 
+          key.toLowerCase().includes('category')
+        );
+        console.log('📥 Category fields found:', categoryFields);
+        
+        categoryFields.forEach(field => {
+          console.log(`📥 ${field}:`, sampleItem.fields[field]);
+        });
+      }
+      
+      return {
+        rawFields: rawResponse.value[0]?.fields,
+        categoryFields: Object.keys(rawResponse.value[0]?.fields || {}).filter(key => 
+          key.toLowerCase().includes('category')
+        )
+      };
+      
+    } catch (error) {
+      console.error('❌ Test failed:', error);
+      throw error;
     }
   }
 

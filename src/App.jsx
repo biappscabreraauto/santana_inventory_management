@@ -29,6 +29,7 @@ const InvoiceDetails = React.lazy(() => import('./components/invoices/InvoiceDet
 const TransactionForm = React.lazy(() => import('./components/transactions/TransactionForm'))
 const TransactionHistory = React.lazy(() => import('./components/transactions/TransactionHistory'))
 const ExternalLookup = React.lazy(() => import('./components/external/ExternalLookup'))
+const LookupFieldTest = React.lazy(() => import('./components/parts/LookupFieldTest'))
 
 // ================================================================
 // LOADING FALLBACK COMPONENT
@@ -100,6 +101,7 @@ const AuthenticatedRoutes = () => (
         {/* Parts Management */}
         <Route path="/parts" element={<PartsTable />} />
         <Route path="/parts/new" element={<PartForm />} />
+        <Route path="/parts/test-lookup" element={<LookupFieldTest />} />
         <Route path="/parts/:id" element={<PartDetails />} />
         <Route path="/parts/:id/edit" element={<PartForm />} />
         
