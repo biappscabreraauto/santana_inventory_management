@@ -1,8 +1,9 @@
 // =================================================================
-// SHAREPOINT SERVICE LAYER - COMPLETE WITH ALL CRUD OPERATIONS
+// SHAREPOINT SERVICE LAYER - HYBRID SOLUTION IMPLEMENTATION
 // =================================================================
 // This service handles all SharePoint operations using Microsoft Graph API
-// It integrates with MSAL for authentication and provides clean CRUD operations
+// HYBRID SOLUTION: Category field converted from Lookup to Text field
+// to work around Microsoft Graph API bug with custom lookup fields
 
 import { Client } from '@microsoft/microsoft-graph-client';
 
@@ -42,7 +43,7 @@ const getSiteId = () => {
     const pathname = url.pathname;
     return `${hostname}:${pathname}`;
   } catch (error) {
-    console.error('❌ Invalid SharePoint URL:', error);
+    console.error('Invalid SharePoint URL:', error);
     throw new Error('Invalid SharePoint site URL configuration');
   }
 };
@@ -64,6 +65,7 @@ const createGraphClient = (accessToken) => {
 
 /**
  * Transform SharePoint list item to clean object
+ * HYBRID SOLUTION: Category field handled as simple text
  */
 const transformSharePointItem = (sharePointItem, listType) => {
   if (!sharePointItem) return null;
@@ -84,9 +86,8 @@ const transformSharePointItem = (sharePointItem, listType) => {
         ...baseItem,
         partId: fields.Title,
         description: fields.Description,
-        // Handle lookup field properly - get both the text value and ID
+        // HYBRID SOLUTION: Category is now a simple text field
         category: fields.Category || 'Uncategorized',
-        categoryId: fields.CategoryLookupId || null,
         inventoryOnHand: fields.InventoryOnHand || 0,
         unitCost: fields.UnitCost || 0,
         unitPrice: fields.UnitPrice || 0,
@@ -111,13 +112,18 @@ const transformSharePointItem = (sharePointItem, listType) => {
     case 'transactions':
       return {
         ...baseItem,
-        partId: fields.Part?.LookupValue || fields.Part,
+        // Handle part lookup - may need to be text in future
+        partId: fields.Part?.LookupValue || fields.Part || '',
         movementType: fields.MovementType,
         quantity: fields.Quantity || 0,
         unitCost: fields.UnitCost || 0,
         unitPrice: fields.UnitPrice || 0,
-        invoice: fields.Invoice?.LookupValue || fields.Invoice,
+        // Handle invoice lookup - may need to be text in future
+        invoice: fields.Invoice?.LookupValue || fields.Invoice || '',
+        // Handle buyer lookup - may need to be text in future
+        buyer: fields.Buyer?.LookupValue || fields.Buyer || '',
         notes: fields.Notes || '',
+        supplier: fields.Supplier || '',
       };
 
     case 'invoices':
@@ -139,58 +145,46 @@ const transformSharePointItem = (sharePointItem, listType) => {
 
 /**
  * Transform component data to SharePoint format
+ * HYBRID SOLUTION: Category field handled as simple text
  */
-const transformToSharePoint = async (data, listType, accessToken = null) => {
+const transformToSharePoint = (data, listType) => {
   switch (listType) {
     case 'parts':
-      // Handle category lookup
-      let categoryLookup = data.category;
-      if (accessToken && data.category) {
-        const categoryId = await sharePointService.getCategoryLookupId(accessToken, data.category);
-        if (categoryId) {
-          categoryLookup = categoryId; // Use the lookup ID
-        }
-      }
-      
       return {
         Title: data.partId,
         Description: data.description,
-        Category: categoryLookup, // This will be the lookup ID
-        InventoryOnHand: data.inventoryOnHand,
-        UnitCost: data.unitCost,
-        UnitPrice: data.unitPrice,
-        Status: data.status,
+        // HYBRID SOLUTION: Category is now direct text value
+        Category: data.category || 'Uncategorized',
+        InventoryOnHand: data.inventoryOnHand || 0,
+        UnitCost: data.unitCost || 0,
+        UnitPrice: data.unitPrice || 0,
+        Status: data.status || 'Active',
       };
 
     case 'categories':
       return {
         Title: data.category,
-        Family: data.family,
+        Family: data.family || '',
       };
 
     case 'buyers':
       return {
         Title: data.buyerName,
-        ContactEmail: data.contactEmail,
-        Phone: data.phone,
+        ContactEmail: data.contactEmail || '',
+        Phone: data.phone || '',
       };
 
     case 'transactions':
-      // Handle part lookup for transactions
-      let partLookup = data.partId;
-      if (accessToken && data.partId) {
-        // You might need to implement getPartLookupId similar to getCategoryLookupId
-        // For now, we'll use the partId as is
-      }
-      
       return {
-        Part: partLookup,
+        Part: data.partId,
         MovementType: data.movementType,
-        Quantity: data.quantity,
-        UnitCost: data.unitCost,
-        UnitPrice: data.unitPrice,
-        Invoice: data.invoice,
-        Notes: data.notes,
+        Quantity: data.quantity || 0,
+        UnitCost: data.unitCost || 0,
+        UnitPrice: data.unitPrice || 0,
+        Invoice: data.invoice || '',
+        Buyer: data.buyer || '',
+        Notes: data.notes || '',
+        Supplier: data.supplier || '',
       };
 
     case 'invoices':
@@ -198,9 +192,9 @@ const transformToSharePoint = async (data, listType, accessToken = null) => {
         Title: data.invoiceNumber,
         Buyer: data.buyer,
         InvoiceDate: data.invoiceDate,
-        TotalAmount: data.totalAmount,
-        Status: data.status,
-        Notes: data.notes,
+        TotalAmount: data.totalAmount || 0,
+        Status: data.status || 'Draft',
+        Notes: data.notes || '',
       };
 
     default:
@@ -289,52 +283,6 @@ class SharePointService {
     }
   }
 
-  /**
-   * DIAGNOSTIC: Test the actual API response format
-   */
-  async testLookupFieldResponse(accessToken) {
-    const graphClient = createGraphClient(accessToken);
-    
-    try {
-      console.log('🔍 Testing actual SharePoint API response format...');
-      
-      // Get a sample part without transformation
-      const rawResponse = await graphClient
-        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
-        .expand('fields')
-        .top(1)
-        .get();
-      
-      if (rawResponse.value.length > 0) {
-        const sampleItem = rawResponse.value[0];
-        console.log('📥 Raw SharePoint item:', sampleItem);
-        console.log('📥 Raw fields:', sampleItem.fields);
-        console.log('📥 All field keys:', Object.keys(sampleItem.fields));
-        
-        // Look for category-related fields
-        const categoryFields = Object.keys(sampleItem.fields).filter(key => 
-          key.toLowerCase().includes('category')
-        );
-        console.log('📥 Category fields found:', categoryFields);
-        
-        categoryFields.forEach(field => {
-          console.log(`📥 ${field}:`, sampleItem.fields[field]);
-        });
-      }
-      
-      return {
-        rawFields: rawResponse.value[0]?.fields,
-        categoryFields: Object.keys(rawResponse.value[0]?.fields || {}).filter(key => 
-          key.toLowerCase().includes('category')
-        )
-      };
-      
-    } catch (error) {
-      console.error('❌ Test failed:', error);
-      throw error;
-    }
-  }
-
   // =================================================================
   // PARTS OPERATIONS
   // =================================================================
@@ -410,6 +358,7 @@ class SharePointService {
 
   /**
    * Create new part in SharePoint
+   * HYBRID SOLUTION: Category validation handled in application layer
    */
   async createPart(accessToken, partData) {
     const graphClient = createGraphClient(accessToken);
@@ -417,26 +366,9 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        // Resolve category name to ID for lookup field
-        let categoryId = null;
-        if (partData.category) {
-          categoryId = await this.getCategoryIdByName(accessToken, partData.category);
-          if (!categoryId) {
-            throw new Error(`Category "${partData.category}" not found. Please check that the category exists in the Categories list.`);
-          }
-        }
+        const sharePointData = transformToSharePoint(partData, 'parts');
 
-        const sharePointData = {
-          Title: partData.partId,
-          Description: partData.description,
-          Category: categoryId, // Use the resolved ID
-          InventoryOnHand: partData.inventoryOnHand,
-          UnitCost: partData.unitCost,
-          UnitPrice: partData.unitPrice,
-          Status: partData.status,
-        };
-
-        console.log('SharePoint data being sent:', sharePointData);
+        console.log('Creating part with data:', sharePointData);
 
         const response = await graphClient
           .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
@@ -455,6 +387,7 @@ class SharePointService {
 
   /**
    * Update existing part in SharePoint
+   * HYBRID SOLUTION: Category validation handled in application layer
    */
   async updatePart(accessToken, partId, partData) {
     const graphClient = createGraphClient(accessToken);
@@ -462,26 +395,9 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        // Resolve category name to ID for lookup field
-        let categoryId = null;
-        if (partData.category) {
-          categoryId = await this.getCategoryIdByName(accessToken, partData.category);
-          if (!categoryId) {
-            throw new Error(`Category "${partData.category}" not found. Please check that the category exists in the Categories list.`);
-          }
-        }
+        const sharePointData = transformToSharePoint(partData, 'parts');
 
-        const sharePointData = {
-          Title: partData.partId,
-          Description: partData.description,
-          Category: categoryId, // Use the resolved ID
-          InventoryOnHand: partData.inventoryOnHand,
-          UnitCost: partData.unitCost,
-          UnitPrice: partData.unitPrice,
-          Status: partData.status,
-        };
-
-        console.log('SharePoint update data being sent:', sharePointData);
+        console.log('Updating part with data:', sharePointData);
 
         const response = await graphClient
           .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${partId}`)
@@ -586,60 +502,67 @@ class SharePointService {
   }
 
   /**
-   * Get category lookup ID by name
-   * @param {string} accessToken - Access token
-   * @param {string} categoryName - Category name to lookup
-   * @returns {Promise<number|null>} Category lookup ID
+   * Get category lookup map for quick family resolution
+   * HYBRID SOLUTION: Returns map of category name to family
    */
-  async getCategoryLookupId(accessToken, categoryName) {
-    if (!categoryName) return null;
+  async getCategoryMap(accessToken) {
+    const categories = await this.getCategories(accessToken);
+    const categoryMap = new Map();
     
-    const graphClient = createGraphClient(accessToken);
+    categories.forEach(cat => {
+      categoryMap.set(cat.category, {
+        id: cat.id,
+        category: cat.category,
+        family: cat.family,
+        created: cat.created,
+        modified: cat.modified
+      });
+    });
     
-    try {
-      const response = await graphClient
-        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.categories}/items?$expand=fields`)
-        .filter(`fields/Title eq '${categoryName}'`)
-        .top(1)
-        .get();
-      
-      if (response.value && response.value.length > 0) {
-        return response.value[0].id;
-      }
-      
-      return null;
-    } catch (error) {
-      console.error('Error getting category lookup ID:', error);
-      return null;
-    }
+    return categoryMap;
   }
 
   /**
-   * Get category ID by name for lookup fields
+   * Get family for a specific category
+   * HYBRID SOLUTION: Quick lookup without needing ID resolution
    */
-  async getCategoryIdByName(accessToken, categoryName) {
+  async getFamilyByCategory(accessToken, categoryName) {
     if (!categoryName) return null;
     
-    const graphClient = createGraphClient(accessToken);
+    const categoryMap = await this.getCategoryMap(accessToken);
+    const categoryInfo = categoryMap.get(categoryName);
     
-    try {
-      const response = await graphClient
-        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.categories}/items?$expand=fields`)
-        .filter(`fields/Title eq '${categoryName.replace(/'/g, "''")}'`) // Escape single quotes
-        .top(1)
-        .get();
-      
-      if (response.value && response.value.length > 0) {
-        console.log(`Found category "${categoryName}" with ID:`, response.value[0].id);
-        return response.value[0].id;
+    return categoryInfo ? categoryInfo.family : null;
+  }
+
+  /**
+   * Validate category name against Categories list
+   * HYBRID SOLUTION: Application-level validation
+   */
+  async validateCategory(accessToken, categoryName) {
+    if (!categoryName) return false;
+    
+    const categoryNames = await this.getCategoryNames(accessToken);
+    return categoryNames.includes(categoryName);
+  }
+
+  /**
+   * Get categories grouped by family
+   * HYBRID SOLUTION: Enhanced category organization
+   */
+  async getCategoriesByFamily(accessToken) {
+    const categories = await this.getCategories(accessToken);
+    const familyMap = new Map();
+    
+    categories.forEach(cat => {
+      const family = cat.family || 'Uncategorized';
+      if (!familyMap.has(family)) {
+        familyMap.set(family, []);
       }
-      
-      console.warn(`Category "${categoryName}" not found in SharePoint`);
-      return null;
-    } catch (error) {
-      console.error('Error getting category ID:', error);
-      return null;
-    }
+      familyMap.get(family).push(cat);
+    });
+    
+    return Object.fromEntries(familyMap);
   }
 
   // =================================================================
@@ -1020,6 +943,7 @@ class SharePointService {
             quantity: item.quantity,
             unitPrice: item.unitPrice,
             invoice: invoiceId,
+            buyer: item.buyer || '',
             notes: `Invoice ${invoiceId} finalization`,
           };
 
@@ -1109,6 +1033,8 @@ class SharePointService {
       async () => {
         const sharePointData = transformToSharePoint(transactionData, 'transactions');
 
+        console.log('Creating transaction with data:', sharePointData);
+
         const response = await graphClient
           .api(
             `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.transactions}/items`
@@ -1130,7 +1056,7 @@ class SharePointService {
    * Get transaction history for a specific part
    */
   async getPartTransactions(accessToken, partId) {
-    const cacheKey = `transactions_${partId}`;
+    const cacheKey = `part_transactions_${partId}`;
     const cached = this.getFromCache(cacheKey);
     if (cached) return cached;
 
@@ -1164,6 +1090,7 @@ class SharePointService {
 
   /**
    * Search across all lists
+   * HYBRID SOLUTION: Enhanced search includes family information
    */
   async searchAll(accessToken, searchTerm, options = {}) {
     const results = {
@@ -1174,8 +1101,8 @@ class SharePointService {
     };
 
     try {
-      // Search parts
-      const partsFilter = `(substringof('${searchTerm}', fields/Title) or substringof('${searchTerm}', fields/Description))`;
+      // Search parts by Part ID, Description, or Category
+      const partsFilter = `(substringof('${searchTerm}', fields/Title) or substringof('${searchTerm}', fields/Description) or substringof('${searchTerm}', fields/Category))`;
       results.parts = await this.getParts(accessToken, { filter: partsFilter, top: 10 });
 
       // Search buyers
@@ -1197,6 +1124,27 @@ class SharePointService {
     return results;
   }
 
+  /**
+   * Search parts with family information
+   * HYBRID SOLUTION: Enhanced search includes family context
+   */
+  async searchPartsWithFamily(accessToken, searchTerm, options = {}) {
+    // Get basic search results
+    const partsFilter = `(substringof('${searchTerm}', fields/Title) or substringof('${searchTerm}', fields/Description) or substringof('${searchTerm}', fields/Category))`;
+    const parts = await this.getParts(accessToken, { filter: partsFilter, top: options.top || 20 });
+
+    // Get category map for family lookups
+    const categoryMap = await this.getCategoryMap(accessToken);
+
+    // Enhance results with family information
+    const enhancedParts = parts.map(part => ({
+      ...part,
+      family: categoryMap.get(part.category)?.family || 'Unknown'
+    }));
+
+    return enhancedParts;
+  }
+
   // =================================================================
   // HEALTH CHECK & UTILITIES
   // =================================================================
@@ -1209,6 +1157,11 @@ class SharePointService {
     const results = {
       siteAccess: false,
       listsAccess: {},
+      hybridSolutionStatus: {
+        categoriesListWorking: false,
+        categoryFieldType: 'unknown',
+        categoryValidation: false
+      },
       timestamp: new Date().toISOString(),
     };
 
@@ -1218,9 +1171,7 @@ class SharePointService {
       results.siteAccess = true;
 
       // Test each list access
-      for (const [listKey, listName] of Object.entries(
-        SHAREPOINT_CONFIG.lists
-      )) {
+      for (const [listKey, listName] of Object.entries(SHAREPOINT_CONFIG.lists)) {
         try {
           await graphClient.api(`/sites/${this.siteId}/lists/${listName}`).get();
           results.listsAccess[listKey] = true;
@@ -1228,8 +1179,233 @@ class SharePointService {
           results.listsAccess[listKey] = false;
         }
       }
+
+      // Test hybrid solution components
+      try {
+        // Test categories list
+        const categories = await this.getCategories(accessToken);
+        results.hybridSolutionStatus.categoriesListWorking = categories.length > 0;
+
+        // Test category field type (should be text now)
+        const samplePart = await this.getParts(accessToken, { top: 1 });
+        if (samplePart.length > 0) {
+          results.hybridSolutionStatus.categoryFieldType = typeof samplePart[0].category === 'string' ? 'text' : 'lookup';
+        }
+
+        // Test category validation
+        if (categories.length > 0) {
+          const firstCategory = categories[0].category;
+          results.hybridSolutionStatus.categoryValidation = await this.validateCategory(accessToken, firstCategory);
+        }
+
+      } catch (error) {
+        console.error('Hybrid solution health check failed:', error);
+      }
+
     } catch (error) {
-      console.error('❌ SharePoint health check failed:', error);
+      console.error('SharePoint health check failed:', error);
+    }
+
+    return results;
+  }
+
+  /**
+   * Get comprehensive statistics for dashboard
+   * HYBRID SOLUTION: Enhanced stats with family breakdowns
+   */
+  async getInventoryStats(accessToken) {
+    try {
+      const [parts, categories, buyers, invoices, transactions] = await Promise.all([
+        this.getParts(accessToken),
+        this.getCategories(accessToken),
+        this.getBuyers(accessToken),
+        this.getInvoices(accessToken),
+        this.getTransactions(accessToken, { top: 100 })
+      ]);
+
+      // Calculate basic stats
+      const totalParts = parts.length;
+      const totalValue = parts.reduce((sum, part) => sum + (part.inventoryOnHand * part.unitCost), 0);
+      const lowStockParts = parts.filter(part => part.inventoryOnHand <= 5 && part.inventoryOnHand > 0).length;
+      const outOfStockParts = parts.filter(part => part.inventoryOnHand === 0).length;
+
+      // Calculate family stats
+      const categoryMap = await this.getCategoryMap(accessToken);
+      const familyStats = {};
+      
+      parts.forEach(part => {
+        const categoryInfo = categoryMap.get(part.category);
+        const family = categoryInfo?.family || 'Unknown';
+        
+        if (!familyStats[family]) {
+          familyStats[family] = {
+            totalParts: 0,
+            totalValue: 0,
+            lowStockParts: 0,
+            outOfStockParts: 0
+          };
+        }
+        
+        familyStats[family].totalParts++;
+        familyStats[family].totalValue += (part.inventoryOnHand * part.unitCost);
+        
+        if (part.inventoryOnHand <= 5 && part.inventoryOnHand > 0) {
+          familyStats[family].lowStockParts++;
+        } else if (part.inventoryOnHand === 0) {
+          familyStats[family].outOfStockParts++;
+        }
+      });
+
+      // Calculate invoice stats
+      const totalInvoices = invoices.length;
+      const totalRevenue = invoices
+        .filter(invoice => invoice.status === 'Paid' || invoice.status === 'Finalized')
+        .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0);
+
+      return {
+        overview: {
+          totalParts,
+          totalValue,
+          lowStockParts,
+          outOfStockParts,
+          totalCategories: categories.length,
+          totalFamilies: Object.keys(familyStats).length,
+          totalBuyers: buyers.length,
+          totalInvoices,
+          totalRevenue,
+          recentTransactions: transactions.length
+        },
+        familyBreakdown: familyStats,
+        categoryBreakdown: categories.reduce((acc, cat) => {
+          acc[cat.category] = {
+            family: cat.family,
+            partsCount: parts.filter(part => part.category === cat.category).length
+          };
+          return acc;
+        }, {}),
+        timestamp: new Date().toISOString()
+      };
+
+    } catch (error) {
+      console.error('Failed to get inventory stats:', error);
+      throw error;
+    }
+  }
+
+  // =================================================================
+  // HYBRID SOLUTION SPECIFIC METHODS
+  // =================================================================
+
+  /**
+   * Get enriched parts with family information
+   * HYBRID SOLUTION: Automatically includes family data
+   */
+  async getPartsWithFamily(accessToken, options = {}) {
+    const parts = await this.getParts(accessToken, options);
+    const categoryMap = await this.getCategoryMap(accessToken);
+
+    return parts.map(part => ({
+      ...part,
+      family: categoryMap.get(part.category)?.family || 'Unknown'
+    }));
+  }
+
+  /**
+   * Get parts grouped by family
+   * HYBRID SOLUTION: Enhanced organization
+   */
+  async getPartsGroupedByFamily(accessToken) {
+    const partsWithFamily = await this.getPartsWithFamily(accessToken);
+    const familyGroups = {};
+
+    partsWithFamily.forEach(part => {
+      const family = part.family || 'Unknown';
+      if (!familyGroups[family]) {
+        familyGroups[family] = [];
+      }
+      familyGroups[family].push(part);
+    });
+
+    return familyGroups;
+  }
+
+  /**
+   * Create part with category validation
+   * HYBRID SOLUTION: Enhanced validation
+   */
+  async createPartWithValidation(accessToken, partData) {
+    // Validate category against Categories list
+    if (partData.category) {
+      const isValidCategory = await this.validateCategory(accessToken, partData.category);
+      if (!isValidCategory) {
+        throw new Error(`Invalid category: "${partData.category}". Please select a valid category from the list.`);
+      }
+    }
+
+    return await this.createPart(accessToken, partData);
+  }
+
+  /**
+   * Update part with category validation
+   * HYBRID SOLUTION: Enhanced validation
+   */
+  async updatePartWithValidation(accessToken, partId, partData) {
+    // Validate category against Categories list
+    if (partData.category) {
+      const isValidCategory = await this.validateCategory(accessToken, partData.category);
+      if (!isValidCategory) {
+        throw new Error(`Invalid category: "${partData.category}". Please select a valid category from the list.`);
+      }
+    }
+
+    return await this.updatePart(accessToken, partId, partData);
+  }
+
+  /**
+   * Sync category data (for maintenance)
+   * HYBRID SOLUTION: Utility for data consistency
+   */
+  async syncCategoryData(accessToken) {
+    const results = {
+      categoriesProcessed: 0,
+      partsUpdated: 0,
+      errors: []
+    };
+
+    try {
+      const [categories, parts] = await Promise.all([
+        this.getCategories(accessToken),
+        this.getParts(accessToken)
+      ]);
+
+      const validCategoryNames = categories.map(cat => cat.category);
+      results.categoriesProcessed = validCategoryNames.length;
+
+      // Find parts with invalid categories
+      const partsToUpdate = parts.filter(part => 
+        part.category && !validCategoryNames.includes(part.category)
+      );
+
+      // Update parts with invalid categories to "Uncategorized"
+      for (const part of partsToUpdate) {
+        try {
+          await this.updatePart(accessToken, part.id, {
+            ...part,
+            category: 'Uncategorized'
+          });
+          results.partsUpdated++;
+        } catch (error) {
+          results.errors.push({
+            partId: part.partId,
+            error: error.message
+          });
+        }
+      }
+
+    } catch (error) {
+      results.errors.push({
+        general: error.message
+      });
     }
 
     return results;

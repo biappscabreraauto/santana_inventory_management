@@ -41,16 +41,18 @@ export const useSharePointBase = () => {
 }
 
 // =================================================================
-// PARTS HOOKS
+// PARTS HOOKS - ENHANCED FOR HYBRID SOLUTION
 // =================================================================
 
 /**
- * Hook for managing parts data
+ * Hook for managing parts data with family information
+ * HYBRID SOLUTION: Enhanced with family support
  * @param {Object} options - Query options for parts
  * @returns {Object} Parts data and operations
  */
 export const useParts = (options = {}) => {
   const [parts, setParts] = useState([])
+  const [partsWithFamily, setPartsWithFamily] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const { executeOperation } = useSharePointBase()
@@ -60,19 +62,23 @@ export const useParts = (options = {}) => {
   const isMountedRef = useRef(true)
 
   /**
-   * Load parts from SharePoint
+   * Load parts from SharePoint with family information
+   * HYBRID SOLUTION: Automatically includes family data
    */
   const loadParts = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       
+      // Get parts with family information
       const result = await executeOperation(
-        (token) => sharePointService.getParts(token, options),
+        (token) => sharePointService.getPartsWithFamily(token, options),
         'Failed to load parts'
       )
       
       if (isMountedRef.current) {
+        setPartsWithFamily(result)
+        // Also maintain backward compatibility
         setParts(result)
       }
     } catch (err) {
@@ -84,16 +90,15 @@ export const useParts = (options = {}) => {
         setLoading(false)
       }
     }
-  }, [executeOperation,  JSON.stringify(options)])
+  }, [executeOperation, JSON.stringify(options)])
 
   /**
-   * Create a new part
-   * @param {Object} partData - Part data to create
-   * @returns {Promise<Object>} Created part
+   * Create a new part with validation
+   * HYBRID SOLUTION: Includes category validation
    */
   const createPart = useCallback(async (partData) => {
     const result = await executeOperation(
-      (token) => sharePointService.createPart(token, partData),
+      (token) => sharePointService.createPartWithValidation(token, partData),
       'Failed to create part'
     )
     
@@ -106,20 +111,23 @@ export const useParts = (options = {}) => {
   }, [executeOperation, success, loadParts])
 
   /**
-   * Update an existing part
-   * @param {string} partId - Part ID to update
-   * @param {Object} partData - Updated part data
-   * @returns {Promise<Object>} Updated part
+   * Update an existing part with validation
+   * HYBRID SOLUTION: Includes category validation
    */
   const updatePart = useCallback(async (partId, partData) => {
     const result = await executeOperation(
-      (token) => sharePointService.updatePart(token, partId, partData),
+      (token) => sharePointService.updatePartWithValidation(token, partId, partData),
       'Failed to update part'
     )
     
     success('Part updated successfully!')
     
-    // Update local state
+    // Update local state with family information
+    setPartsWithFamily(prevParts => 
+      prevParts.map(part => 
+        part.id === partId ? { ...part, ...result } : part
+      )
+    )
     setParts(prevParts => 
       prevParts.map(part => 
         part.id === partId ? { ...part, ...result } : part
@@ -131,8 +139,6 @@ export const useParts = (options = {}) => {
 
   /**
    * Delete a part
-   * @param {string} partId - Part ID to delete
-   * @returns {Promise<boolean>} Success status
    */
   const deletePart = useCallback(async (partId) => {
     const result = await executeOperation(
@@ -143,6 +149,9 @@ export const useParts = (options = {}) => {
     success('Part deleted successfully!')
     
     // Remove from local state
+    setPartsWithFamily(prevParts => 
+      prevParts.filter(part => part.id !== partId)
+    )
     setParts(prevParts => 
       prevParts.filter(part => part.id !== partId)
     )
@@ -152,8 +161,6 @@ export const useParts = (options = {}) => {
 
   /**
    * Delete multiple parts
-   * @param {Array<string>} partIds - Array of part IDs to delete
-   * @returns {Promise<Object>} Results object
    */
   const deleteMultipleParts = useCallback(async (partIds) => {
     const result = await executeOperation(
@@ -176,6 +183,28 @@ export const useParts = (options = {}) => {
   }, [executeOperation, success, loadParts])
 
   /**
+   * Get parts grouped by family
+   * HYBRID SOLUTION: Enhanced organization
+   */
+  const getPartsGroupedByFamily = useCallback(async () => {
+    return await executeOperation(
+      (token) => sharePointService.getPartsGroupedByFamily(token),
+      'Failed to get parts grouped by family'
+    )
+  }, [executeOperation])
+
+  /**
+   * Search parts with family context
+   * HYBRID SOLUTION: Enhanced search
+   */
+  const searchPartsWithFamily = useCallback(async (searchTerm, searchOptions = {}) => {
+    return await executeOperation(
+      (token) => sharePointService.searchPartsWithFamily(token, searchTerm, searchOptions),
+      'Failed to search parts'
+    )
+  }, [executeOperation])
+
+  /**
    * Refresh parts data
    */
   const refreshParts = useCallback(() => {
@@ -194,12 +223,15 @@ export const useParts = (options = {}) => {
 
   return {
     parts,
+    partsWithFamily, // HYBRID SOLUTION: New property with family data
     loading,
     error,
     createPart,
     updatePart,
     deletePart,
     deleteMultipleParts,
+    getPartsGroupedByFamily, // HYBRID SOLUTION: New method
+    searchPartsWithFamily, // HYBRID SOLUTION: New method
     refreshParts
   }
 }
@@ -251,13 +283,12 @@ export const usePart = (partId) => {
   }, [executeOperation, partId])
 
   /**
-   * Update the current part
-   * @param {Object} partData - Updated part data
-   * @returns {Promise<Object>} Updated part
+   * Update the current part with validation
+   * HYBRID SOLUTION: Includes category validation
    */
   const updatePart = useCallback(async (partData) => {
     const result = await executeOperation(
-      (token) => sharePointService.updatePart(token, partId, partData),
+      (token) => sharePointService.updatePartWithValidation(token, partId, partData),
       'Failed to update part'
     )
     
@@ -269,7 +300,6 @@ export const usePart = (partId) => {
 
   /**
    * Delete the current part
-   * @returns {Promise<boolean>} Success status
    */
   const deletePart = useCallback(async () => {
     const result = await executeOperation(
@@ -304,16 +334,19 @@ export const usePart = (partId) => {
 }
 
 // =================================================================
-// CATEGORIES HOOKS
+// CATEGORIES HOOKS - ENHANCED FOR HYBRID SOLUTION
 // =================================================================
 
 /**
- * Hook for managing categories data
+ * Hook for managing categories data with enhanced hybrid features
+ * HYBRID SOLUTION: Enhanced with family mapping and validation
  * @returns {Object} Categories data and operations
  */
 export const useCategories = () => {
   const [categories, setCategories] = useState([])
   const [categoryNames, setCategoryNames] = useState([])
+  const [categoryMap, setCategoryMap] = useState(new Map())
+  const [categoriesByFamily, setCategoriesByFamily] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const { executeOperation } = useSharePointBase()
@@ -321,14 +354,15 @@ export const useCategories = () => {
   const isMountedRef = useRef(true)
 
   /**
-   * Load categories from SharePoint
+   * Load categories from SharePoint with enhanced processing
+   * HYBRID SOLUTION: Builds category map and family groupings
    */
   const loadCategories = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
       
-      const [categoriesResult, categoryNamesResult] = await Promise.all([
+      const [categoriesResult, categoryNamesResult, categoryMapResult, categoriesByFamilyResult] = await Promise.all([
         executeOperation(
           (token) => sharePointService.getCategories(token),
           'Failed to load categories'
@@ -336,12 +370,22 @@ export const useCategories = () => {
         executeOperation(
           (token) => sharePointService.getCategoryNames(token),
           'Failed to load category names'
+        ),
+        executeOperation(
+          (token) => sharePointService.getCategoryMap(token),
+          'Failed to load category map'
+        ),
+        executeOperation(
+          (token) => sharePointService.getCategoriesByFamily(token),
+          'Failed to load categories by family'
         )
       ])
       
       if (isMountedRef.current) {
         setCategories(categoriesResult)
         setCategoryNames(categoryNamesResult)
+        setCategoryMap(categoryMapResult)
+        setCategoriesByFamily(categoriesByFamilyResult)
       }
     } catch (err) {
       if (isMountedRef.current) {
@@ -354,6 +398,48 @@ export const useCategories = () => {
     }
   }, [executeOperation])
 
+  /**
+   * Get family for a specific category
+   * HYBRID SOLUTION: Quick lookup using category map
+   */
+  const getFamilyByCategory = useCallback((categoryName) => {
+    return categoryMap.get(categoryName)?.family || null
+  }, [categoryMap])
+
+  /**
+   * Validate category name
+   * HYBRID SOLUTION: Application-level validation
+   */
+  const validateCategory = useCallback(async (categoryName) => {
+    return await executeOperation(
+      (token) => sharePointService.validateCategory(token, categoryName),
+      'Failed to validate category'
+    )
+  }, [executeOperation])
+
+  /**
+   * Get categories for a specific family
+   * HYBRID SOLUTION: Enhanced filtering
+   */
+  const getCategoriesForFamily = useCallback((familyName) => {
+    return categoriesByFamily[familyName] || []
+  }, [categoriesByFamily])
+
+  /**
+   * Get unique family names
+   * HYBRID SOLUTION: Helper for dropdowns
+   */
+  const getFamilyNames = useCallback(() => {
+    return Object.keys(categoriesByFamily).sort()
+  }, [categoriesByFamily])
+
+  /**
+   * Refresh categories data
+   */
+  const refreshCategories = useCallback(() => {
+    loadCategories()
+  }, [loadCategories])
+
   // Load categories on mount
   useEffect(() => {
     isMountedRef.current = true
@@ -364,12 +450,32 @@ export const useCategories = () => {
     }
   }, [loadCategories])
 
+  // Memoized computed values for performance
+  const computedValues = useMemo(() => ({
+    totalCategories: categories.length,
+    totalFamilies: Object.keys(categoriesByFamily).length,
+    familyNames: getFamilyNames(),
+    categoryValidationMap: categoryNames.reduce((map, name) => {
+      map[name] = true
+      return map
+    }, {})
+  }), [categories, categoriesByFamily, categoryNames, getFamilyNames])
+
   return {
     categories,
     categoryNames,
+    categoryMap,
+    categoriesByFamily,
     loading,
     error,
-    refreshCategories: loadCategories
+    // HYBRID SOLUTION: New methods
+    getFamilyByCategory,
+    validateCategory,
+    getCategoriesForFamily,
+    getFamilyNames,
+    refreshCategories,
+    // HYBRID SOLUTION: Computed values
+    ...computedValues
   }
 }
 
@@ -428,8 +534,6 @@ export const useBuyers = (options = {}) => {
 
   /**
    * Create a new buyer
-   * @param {Object} buyerData - Buyer data to create
-   * @returns {Promise<Object>} Created buyer
    */
   const createBuyer = useCallback(async (buyerData) => {
     const result = await executeOperation(
@@ -438,8 +542,6 @@ export const useBuyers = (options = {}) => {
     )
     
     success('Buyer created successfully!')
-    
-    // Refresh buyers list
     await loadBuyers()
     
     return result
@@ -447,9 +549,6 @@ export const useBuyers = (options = {}) => {
 
   /**
    * Update an existing buyer
-   * @param {string} buyerId - Buyer ID to update
-   * @param {Object} buyerData - Updated buyer data
-   * @returns {Promise<Object>} Updated buyer
    */
   const updateBuyer = useCallback(async (buyerId, buyerData) => {
     const result = await executeOperation(
@@ -459,7 +558,6 @@ export const useBuyers = (options = {}) => {
     
     success('Buyer updated successfully!')
     
-    // Update local state
     setBuyers(prevBuyers => 
       prevBuyers.map(buyer => 
         buyer.id === buyerId ? { ...buyer, ...result } : buyer
@@ -471,8 +569,6 @@ export const useBuyers = (options = {}) => {
 
   /**
    * Delete a buyer
-   * @param {string} buyerId - Buyer ID to delete
-   * @returns {Promise<boolean>} Success status
    */
   const deleteBuyer = useCallback(async (buyerId) => {
     const result = await executeOperation(
@@ -482,7 +578,6 @@ export const useBuyers = (options = {}) => {
     
     success('Buyer deleted successfully!')
     
-    // Remove from local state
     setBuyers(prevBuyers => 
       prevBuyers.filter(buyer => buyer.id !== buyerId)
     )
@@ -492,8 +587,6 @@ export const useBuyers = (options = {}) => {
 
   /**
    * Delete multiple buyers
-   * @param {Array<string>} buyerIds - Array of buyer IDs to delete
-   * @returns {Promise<Object>} Results object
    */
   const deleteMultipleBuyers = useCallback(async (buyerIds) => {
     const result = await executeOperation(
@@ -509,7 +602,6 @@ export const useBuyers = (options = {}) => {
       console.warn('Some buyers failed to delete:', result.errors)
     }
     
-    // Refresh buyers list
     await loadBuyers()
     
     return result
@@ -593,8 +685,6 @@ export const useBuyer = (buyerId) => {
 
   /**
    * Update the current buyer
-   * @param {Object} buyerData - Updated buyer data
-   * @returns {Promise<Object>} Updated buyer
    */
   const updateBuyer = useCallback(async (buyerData) => {
     const result = await executeOperation(
@@ -610,7 +700,6 @@ export const useBuyer = (buyerId) => {
 
   /**
    * Delete the current buyer
-   * @returns {Promise<boolean>} Success status
    */
   const deleteBuyer = useCallback(async () => {
     const result = await executeOperation(
@@ -691,8 +780,6 @@ export const useInvoices = (options = {}) => {
 
   /**
    * Create a new invoice
-   * @param {Object} invoiceData - Invoice data to create
-   * @returns {Promise<Object>} Created invoice
    */
   const createInvoice = useCallback(async (invoiceData) => {
     const result = await executeOperation(
@@ -701,8 +788,6 @@ export const useInvoices = (options = {}) => {
     )
     
     success('Invoice created successfully!')
-    
-    // Refresh invoices list
     await loadInvoices()
     
     return result
@@ -710,9 +795,6 @@ export const useInvoices = (options = {}) => {
 
   /**
    * Update an existing invoice
-   * @param {string} invoiceId - Invoice ID to update
-   * @param {Object} invoiceData - Updated invoice data
-   * @returns {Promise<Object>} Updated invoice
    */
   const updateInvoice = useCallback(async (invoiceId, invoiceData) => {
     const result = await executeOperation(
@@ -722,7 +804,6 @@ export const useInvoices = (options = {}) => {
     
     success('Invoice updated successfully!')
     
-    // Update local state
     setInvoices(prevInvoices => 
       prevInvoices.map(invoice => 
         invoice.id === invoiceId ? { ...invoice, ...result } : invoice
@@ -734,8 +815,6 @@ export const useInvoices = (options = {}) => {
 
   /**
    * Delete an invoice
-   * @param {string} invoiceId - Invoice ID to delete
-   * @returns {Promise<boolean>} Success status
    */
   const deleteInvoice = useCallback(async (invoiceId) => {
     const result = await executeOperation(
@@ -745,7 +824,6 @@ export const useInvoices = (options = {}) => {
     
     success('Invoice deleted successfully!')
     
-    // Remove from local state
     setInvoices(prevInvoices => 
       prevInvoices.filter(invoice => invoice.id !== invoiceId)
     )
@@ -755,8 +833,6 @@ export const useInvoices = (options = {}) => {
 
   /**
    * Delete multiple invoices
-   * @param {Array<string>} invoiceIds - Array of invoice IDs to delete
-   * @returns {Promise<Object>} Results object
    */
   const deleteMultipleInvoices = useCallback(async (invoiceIds) => {
     const result = await executeOperation(
@@ -772,7 +848,6 @@ export const useInvoices = (options = {}) => {
       console.warn('Some invoices failed to delete:', result.errors)
     }
     
-    // Refresh invoices list
     await loadInvoices()
     
     return result
@@ -780,9 +855,6 @@ export const useInvoices = (options = {}) => {
 
   /**
    * Finalize an invoice (convert from Draft to Finalized)
-   * @param {string} invoiceId - Invoice ID to finalize
-   * @param {Array} lineItems - Array of line items for the invoice
-   * @returns {Promise<Object>} Finalized invoice with transaction records
    */
   const finalizeInvoice = useCallback(async (invoiceId, lineItems) => {
     const result = await executeOperation(
@@ -792,7 +864,6 @@ export const useInvoices = (options = {}) => {
     
     success('Invoice finalized successfully!')
     
-    // Update local state
     setInvoices(prevInvoices => 
       prevInvoices.map(invoice => 
         invoice.id === invoiceId ? { ...invoice, status: 'Finalized' } : invoice
@@ -888,8 +959,6 @@ export const useInvoice = (invoiceId) => {
 
   /**
    * Update the current invoice
-   * @param {Object} invoiceData - Updated invoice data
-   * @returns {Promise<Object>} Updated invoice
    */
   const updateInvoice = useCallback(async (invoiceData) => {
     const result = await executeOperation(
@@ -905,7 +974,6 @@ export const useInvoice = (invoiceId) => {
 
   /**
    * Delete the current invoice
-   * @returns {Promise<boolean>} Success status
    */
   const deleteInvoice = useCallback(async () => {
     const result = await executeOperation(
@@ -921,7 +989,6 @@ export const useInvoice = (invoiceId) => {
 
   /**
    * Finalize the current invoice
-   * @returns {Promise<Object>} Finalized invoice with transaction records
    */
   const finalizeInvoice = useCallback(async () => {
     const result = await executeOperation(
@@ -1004,8 +1071,6 @@ export const useTransactions = (options = {}) => {
 
   /**
    * Create a new transaction
-   * @param {Object} transactionData - Transaction data to create
-   * @returns {Promise<Object>} Created transaction
    */
   const createTransaction = useCallback(async (transactionData) => {
     const result = await executeOperation(
@@ -1014,8 +1079,6 @@ export const useTransactions = (options = {}) => {
     )
     
     success('Transaction created successfully!')
-    
-    // Refresh transactions list
     await loadTransactions()
     
     return result
@@ -1116,6 +1179,7 @@ export const usePartTransactions = (partId) => {
 
 /**
  * Hook for SharePoint health checks and connection testing
+ * HYBRID SOLUTION: Enhanced with hybrid solution status
  * @returns {Object} Health check operations
  */
 export const useSharePointHealth = () => {
@@ -1126,6 +1190,7 @@ export const useSharePointHealth = () => {
   
   /**
    * Run SharePoint health check
+   * HYBRID SOLUTION: Includes hybrid solution validation
    */
   const checkHealth = useCallback(async () => {
     try {
@@ -1147,48 +1212,127 @@ export const useSharePointHealth = () => {
     }
   }, [executeOperation])
 
+  /**
+   * Get inventory statistics
+   * HYBRID SOLUTION: Enhanced stats with family breakdowns
+   */
+  const getInventoryStats = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const result = await executeOperation(
+        (token) => sharePointService.getInventoryStats(token),
+        'Failed to get inventory statistics'
+      )
+      
+      return result
+    } catch (err) {
+      setError(err.message)
+      throw err
+    } finally {
+      setLoading(false)
+    }
+  }, [executeOperation])
+
+  /**
+   * Sync category data (maintenance operation)
+   * HYBRID SOLUTION: Data consistency utility
+   */
+  const syncCategoryData = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      
+      const result = await executeOperation(
+        (token) => sharePointService.syncCategoryData(token),
+        'Failed to sync category data'
+      )
+      
+      return result
+    } catch (err) {
+      setError(err.message)
+      throw err
+    } finally {
+      setLoading(false)
+    }
+  }, [executeOperation])
+
   return {
     healthStatus,
     loading,
     error,
-    checkHealth
+    checkHealth,
+    getInventoryStats, // HYBRID SOLUTION: Enhanced stats
+    syncCategoryData // HYBRID SOLUTION: Maintenance utility
   }
 }
 
 // =================================================================
-// COMBINED DATA HOOK
+// COMBINED DATA HOOK - ENHANCED FOR HYBRID SOLUTION
 // =================================================================
 
 /**
  * Hook that combines multiple SharePoint data sources for dashboard/overview
+ * HYBRID SOLUTION: Enhanced with family information and improved statistics
  * @returns {Object} Combined data from multiple sources
  */
 export const useSharePointData = () => {
-  const { parts, loading: partsLoading, error: partsError } = useParts()
-  const { categories, loading: categoriesLoading, error: categoriesError } = useCategories()
+  const { partsWithFamily, loading: partsLoading, error: partsError } = useParts()
+  const { 
+    categories, 
+    categoriesByFamily, 
+    categoryMap,
+    totalFamilies,
+    loading: categoriesLoading, 
+    error: categoriesError 
+  } = useCategories()
   const { buyers, loading: buyersLoading, error: buyersError } = useBuyers()
   const { invoices, loading: invoicesLoading, error: invoicesError } = useInvoices()
   
   const loading = partsLoading || categoriesLoading || buyersLoading || invoicesLoading
   const error = partsError || categoriesError || buyersError || invoicesError
   
-  // Calculate summary statistics
+  // Calculate enhanced summary statistics with family breakdowns
   const summary = useMemo(() => {
-    if (!parts.length && !invoices.length) return null
+    if (!partsWithFamily.length && !invoices.length) return null
     
-    const totalParts = parts.length
-    const totalValue = parts.reduce((sum, part) => 
+    const totalParts = partsWithFamily.length
+    const totalValue = partsWithFamily.reduce((sum, part) => 
       sum + (part.inventoryOnHand * part.unitCost), 0
     )
-    const lowStockParts = parts.filter(part => part.inventoryOnHand <= 5).length
-    const outOfStockParts = parts.filter(part => part.inventoryOnHand === 0).length
+    const lowStockParts = partsWithFamily.filter(part => part.inventoryOnHand <= 5 && part.inventoryOnHand > 0).length
+    const outOfStockParts = partsWithFamily.filter(part => part.inventoryOnHand === 0).length
     
     const totalInvoices = invoices.length
     const totalRevenue = invoices
       .filter(invoice => invoice.status === 'Paid' || invoice.status === 'Finalized')
-      .reduce((sum, invoice) => sum + invoice.totalAmount, 0)
+      .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0)
     const draftInvoices = invoices.filter(invoice => invoice.status === 'Draft').length
     const paidInvoices = invoices.filter(invoice => invoice.status === 'Paid').length
+
+    // HYBRID SOLUTION: Enhanced family-based statistics
+    const familyStats = {}
+    partsWithFamily.forEach(part => {
+      const family = part.family || 'Unknown'
+      if (!familyStats[family]) {
+        familyStats[family] = {
+          totalParts: 0,
+          totalValue: 0,
+          lowStockParts: 0,
+          outOfStockParts: 0
+        }
+      }
+      
+      familyStats[family].totalParts++
+      familyStats[family].totalValue += (part.inventoryOnHand * part.unitCost)
+      
+      if (part.inventoryOnHand <= 5 && part.inventoryOnHand > 0) {
+        familyStats[family].lowStockParts++
+      } else if (part.inventoryOnHand === 0) {
+        familyStats[family].outOfStockParts++
+      }
+    })
     
     return {
       totalParts,
@@ -1196,20 +1340,44 @@ export const useSharePointData = () => {
       lowStockParts,
       outOfStockParts,
       categoriesCount: categories.length,
+      familiesCount: totalFamilies,
       buyersCount: buyers.length,
       totalInvoices,
       totalRevenue,
       draftInvoices,
-      paidInvoices
+      paidInvoices,
+      familyStats // HYBRID SOLUTION: Enhanced family statistics
     }
-  }, [parts, categories, buyers, invoices])
+  }, [partsWithFamily, categories, buyers, invoices, totalFamilies])
+
+  // HYBRID SOLUTION: Enhanced category insights
+  const categoryInsights = useMemo(() => {
+    if (!partsWithFamily.length || !categories.length) return null
+    
+    const categoryStats = {}
+    categories.forEach(cat => {
+      const categoryParts = partsWithFamily.filter(part => part.category === cat.category)
+      categoryStats[cat.category] = {
+        family: cat.family,
+        totalParts: categoryParts.length,
+        totalValue: categoryParts.reduce((sum, part) => sum + (part.inventoryOnHand * part.unitCost), 0),
+        avgInventory: categoryParts.length > 0 ? 
+          categoryParts.reduce((sum, part) => sum + part.inventoryOnHand, 0) / categoryParts.length : 0
+      }
+    })
+    
+    return categoryStats
+  }, [partsWithFamily, categories])
   
   return {
-    parts,
+    parts: partsWithFamily, // HYBRID SOLUTION: Return enhanced parts with family
     categories,
+    categoriesByFamily, // HYBRID SOLUTION: Enhanced category organization
+    categoryMap, // HYBRID SOLUTION: Quick lookup map
     buyers,
     invoices,
     summary,
+    categoryInsights, // HYBRID SOLUTION: Enhanced insights
     loading,
     error
   }
@@ -1257,46 +1425,12 @@ export const useSharePointCache = () => {
 }
 
 // =================================================================
-// ERROR BOUNDARY HOOK
-// =================================================================
-
-/**
- * Hook for handling SharePoint errors with fallback
- * @param {Function} fallbackFunction - Function to call on error
- * @returns {Object} Error handling utilities
- */
-export const useSharePointErrorBoundary = (fallbackFunction) => {
-  const [hasError, setHasError] = useState(false)
-  const [errorInfo, setErrorInfo] = useState(null)
-  
-  const resetError = useCallback(() => {
-    setHasError(false)
-    setErrorInfo(null)
-  }, [])
-  
-  const handleError = useCallback((error, errorInfo) => {
-    setHasError(true)
-    setErrorInfo({ error, errorInfo })
-    
-    if (fallbackFunction) {
-      fallbackFunction(error, errorInfo)
-    }
-  }, [fallbackFunction])
-  
-  return {
-    hasError,
-    errorInfo,
-    resetError,
-    handleError
-  }
-}
-
-// =================================================================
-// SEARCH HOOKS
+// SEARCH HOOKS - ENHANCED FOR HYBRID SOLUTION
 // =================================================================
 
 /**
  * Hook for searching across multiple SharePoint lists
+ * HYBRID SOLUTION: Enhanced search with family context
  * @param {string} searchTerm - Term to search for
  * @param {Object} options - Search options
  * @returns {Object} Search results and operations
@@ -1316,6 +1450,7 @@ export const useSharePointSearch = (searchTerm, options = {}) => {
 
   /**
    * Perform search across all lists
+   * HYBRID SOLUTION: Enhanced with family information
    */
   const performSearch = useCallback(async () => {
     if (!searchTerm || searchTerm.length < 2) {
@@ -1327,13 +1462,22 @@ export const useSharePointSearch = (searchTerm, options = {}) => {
       setLoading(true)
       setError(null)
       
-      const searchResults = await executeOperation(
-        (token) => sharePointService.searchAll(token, searchTerm, options),
-        'Search failed'
-      )
+      const [searchResults, partsWithFamily] = await Promise.all([
+        executeOperation(
+          (token) => sharePointService.searchAll(token, searchTerm, options),
+          'Search failed'
+        ),
+        executeOperation(
+          (token) => sharePointService.searchPartsWithFamily(token, searchTerm, options),
+          'Parts search failed'
+        )
+      ])
       
       if (isMountedRef.current) {
-        setResults(searchResults)
+        setResults({
+          ...searchResults,
+          parts: partsWithFamily // HYBRID SOLUTION: Enhanced parts with family
+        })
       }
     } catch (err) {
       if (isMountedRef.current) {
@@ -1368,6 +1512,95 @@ export const useSharePointSearch = (searchTerm, options = {}) => {
 }
 
 // =================================================================
+// FAMILY-SPECIFIC HOOKS (HYBRID SOLUTION)
+// =================================================================
+
+/**
+ * Hook for family-based operations
+ * HYBRID SOLUTION: New functionality for family management
+ * @returns {Object} Family operations and data
+ */
+export const useFamilyOperations = () => {
+  const { 
+    categoriesByFamily, 
+    getFamilyByCategory, 
+    getCategoriesForFamily,
+    getFamilyNames,
+    loading: categoriesLoading,
+    error: categoriesError
+  } = useCategories()
+  
+  const { 
+    getPartsGroupedByFamily, 
+    searchPartsWithFamily,
+    loading: partsLoading,
+    error: partsError
+  } = useParts()
+  
+  const loading = categoriesLoading || partsLoading
+  const error = categoriesError || partsError
+  
+  /**
+   * Get comprehensive family statistics
+   * HYBRID SOLUTION: Enhanced family analytics
+   */
+  const getFamilyStats = useCallback(async () => {
+    try {
+      const partsGroupedByFamily = await getPartsGroupedByFamily()
+      const familyStats = {}
+      
+      Object.entries(partsGroupedByFamily).forEach(([family, parts]) => {
+        const totalParts = parts.length
+        const totalValue = parts.reduce((sum, part) => sum + (part.inventoryOnHand * part.unitCost), 0)
+        const totalInventory = parts.reduce((sum, part) => sum + part.inventoryOnHand, 0)
+        const lowStockParts = parts.filter(part => part.inventoryOnHand <= 5 && part.inventoryOnHand > 0).length
+        const outOfStockParts = parts.filter(part => part.inventoryOnHand === 0).length
+        
+        familyStats[family] = {
+          totalParts,
+          totalValue,
+          totalInventory,
+          lowStockParts,
+          outOfStockParts,
+          averageInventory: totalParts > 0 ? totalInventory / totalParts : 0,
+          categories: categoriesByFamily[family] || []
+        }
+      })
+      
+      return familyStats
+    } catch (error) {
+      console.error('Failed to get family stats:', error)
+      return {}
+    }
+  }, [getPartsGroupedByFamily, categoriesByFamily])
+  
+  /**
+   * Search parts within a specific family
+   * HYBRID SOLUTION: Family-scoped search
+   */
+  const searchPartsInFamily = useCallback(async (familyName, searchTerm) => {
+    try {
+      const allResults = await searchPartsWithFamily(searchTerm)
+      return allResults.filter(part => part.family === familyName)
+    } catch (error) {
+      console.error('Failed to search parts in family:', error)
+      return []
+    }
+  }, [searchPartsWithFamily])
+  
+  return {
+    categoriesByFamily,
+    getFamilyByCategory,
+    getCategoriesForFamily,
+    getFamilyNames,
+    getFamilyStats,
+    searchPartsInFamily,
+    loading,
+    error
+  }
+}
+
+// =================================================================
 // EXPORT ALL HOOKS
 // =================================================================
 
@@ -1379,7 +1612,7 @@ export default {
   useParts,
   usePart,
   
-  // Categories
+  // Categories (Enhanced)
   useCategories,
   
   // Buyers
@@ -1400,5 +1633,7 @@ export default {
   useSharePointSearch,
   useDebounceSharePoint,
   useSharePointCache,
-  useSharePointErrorBoundary
+  
+  // HYBRID SOLUTION: New family-specific hooks
+  useFamilyOperations
 }
