@@ -104,14 +104,16 @@ const InvoiceDetails = () => {
         orderBy: 'fields/Created asc'
       })
 
-      // Transform to line items
+      // Transform to line items - FIXED: Include movementType for proper identification
       const items = transactionsData.map(transaction => ({
         id: transaction.id,
         partId: transaction.partId,
         quantity: transaction.quantity,
         unitPrice: transaction.unitPrice || 0,
         total: transaction.quantity * (transaction.unitPrice || 0),
-        notes: transaction.notes || ''
+        notes: transaction.notes || '',
+        movementType: transaction.movementType, // ✅ ADDED: Include transaction type
+        isVoidAdjustment: transaction.movementType === 'Void adjustment' // ✅ ADDED: Flag for styling
       }))
 
       setLineItems(items)
@@ -309,6 +311,12 @@ const InvoiceDetails = () => {
       <div className="bg-white rounded-lg border border-gray-200">
         <div className="px-6 py-4 border-b border-gray-200">
           <h2 className="text-lg font-semibold text-gray-900">Line Items</h2>
+          {/* ✅ ADDED: Legend for voided items */}
+          {lineItems.some(item => item.isVoidAdjustment) && (
+            <p className="text-sm text-gray-600 mt-1">
+              Items with red background have been voided and represent inventory adjustments.
+            </p>
+          )}
         </div>
         
         <div className="overflow-x-auto">
@@ -345,29 +353,52 @@ const InvoiceDetails = () => {
                 </tr>
               ) : (
                 lineItems.map((item) => (
-                  <tr key={item.id}>
+                  <tr 
+                    key={item.id} 
+                    className={item.isVoidAdjustment ? "bg-red-50 border-l-4 border-red-200" : ""}
+                  >
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <Link
-                        to={`/parts/${item.partId}`}
-                        className="text-blue-600 hover:text-blue-800 font-medium"
-                      >
-                        {item.partId}
-                      </Link>
+                      <div className="flex items-center">
+                        <Link
+                          to={`/parts/${item.partId}`}
+                          className="text-blue-600 hover:text-blue-800 font-medium"
+                        >
+                          {item.partId}
+                        </Link>
+                        {/* ✅ ADDED: Visual indicator for void adjustments */}
+                        {item.isVoidAdjustment && (
+                          <span className="ml-2 inline-flex px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-800">
+                            VOIDED
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-sm text-gray-900">{item.partDescription || 'No description'}</div>
                       {item.category && (
                         <div className="text-xs text-gray-500">{item.category}</div>
                       )}
+                      {/* ✅ ADDED: Show movement type for clarity */}
+                      {item.isVoidAdjustment && (
+                        <div className="text-xs text-red-600 font-medium">Void Adjustment</div>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {item.quantity}
+                      {/* ✅ FIXED: Show negative quantity for void adjustments */}
+                      <span className={item.isVoidAdjustment ? "text-red-600" : ""}>
+                        {item.isVoidAdjustment ? `-${item.quantity}` : item.quantity}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatCurrency(item.unitPrice)}
+                      <span className={item.isVoidAdjustment ? "text-red-600" : ""}>
+                        {formatCurrency(item.unitPrice)}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {formatCurrency(item.total)}
+                      {/* ✅ FIXED: Show negative total for void adjustments */}
+                      <span className={item.isVoidAdjustment ? "text-red-600" : ""}>
+                        {item.isVoidAdjustment ? `-${formatCurrency(item.total)}` : formatCurrency(item.total)}
+                      </span>
                     </td>
                   </tr>
                 ))

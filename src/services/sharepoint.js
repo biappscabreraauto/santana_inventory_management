@@ -143,84 +143,81 @@ const transformSharePointItem = (sharePointItem, listType) => {
  * Transform component data to SharePoint format
  * HYBRID SOLUTION: Category field handled as simple text
  */
-const transformToSharePoint = (data, listType) => {
-  switch (listType) {
-    case 'transactions':
-      // Start with base transaction data
-      const transactionData = {
-        Part: data.partId, // Text field (hybrid solution)
-        MovementType: data.movementType,
-        Quantity: data.quantity || 0,
-        Notes: data.notes || '',
-        Supplier: data.supplier || ''
-      };
+  const transformToSharePoint = (data, listType) => {
+    switch (listType) {
+      case 'transactions':
+        // Start with base transaction data
+        const transactionData = {
+          Part: data.partId, // Text field (hybrid solution)
+          MovementType: data.movementType,
+          Quantity: data.quantity || 0,
+          Notes: data.notes || '',
+          Supplier: data.supplier || ''
+        };
 
-      // CRITICAL FIX: Only set the relevant price field based on movement type
-      if (data.movementType === 'In (Received)' || data.movementType === 'Adjustment' || data.movementType === 'Void adjustment') {
-        // For INBOUND: Only set UnitCost, explicitly DO NOT set UnitPrice
-        if (data.unitCost !== undefined && data.unitCost !== null) {
-          transactionData.UnitCost = data.unitCost;
+        // CRITICAL FIX: Only set the relevant price field based on movement type
+        if (data.movementType === 'In (Received)' || data.movementType === 'Adjustment' || data.movementType === 'Void adjustment') {
+          // For INBOUND: Only set UnitCost, explicitly DO NOT set UnitPrice
+          if (data.unitCost !== undefined && data.unitCost !== null) {
+            transactionData.UnitCost = data.unitCost;
+          }
+          
+          // FIX: Include invoice and buyer references for VOID ADJUSTMENTS
+          if (data.movementType === 'Void adjustment') {
+            if (data.invoice) {
+              transactionData.Invoice = data.invoice;
+            }
+            if (data.buyer) {
+              transactionData.Buyer = data.buyer;
+            }
+          }
+          
+        } else if (data.movementType === 'Out (Sold)') {
+          // For OUTBOUND: Set UnitPrice (selling price)
+          if (data.unitPrice !== undefined && data.unitPrice !== null) {
+            transactionData.UnitPrice = data.unitPrice;
+          }
+          // Optionally include UnitCost for reference
+          if (data.unitCost !== undefined && data.unitCost !== null) {
+            transactionData.UnitCost = data.unitCost;
+          }
+          // Include invoice and buyer references for sales
+          if (data.invoice) {
+            transactionData.Invoice = data.invoice;
+          }
+          if (data.buyer) {
+            transactionData.Buyer = data.buyer;
+          }
         }
-        // Do NOT set UnitPrice at all - leave it undefined so SharePoint doesn't store it
-      } else if (data.movementType === 'Out (Sold)') {
-        // For OUTBOUND: Set UnitPrice (selling price)
-        if (data.unitPrice !== undefined && data.unitPrice !== null) {
-          transactionData.UnitPrice = data.unitPrice;
-        }
-        // Optionally include UnitCost for reference
-        if (data.unitCost !== undefined && data.unitCost !== null) {
-          transactionData.UnitCost = data.unitCost;
-        }
-        // Include invoice and buyer references for sales
-        if (data.invoice) {
-          transactionData.Invoice = data.invoice;
-        }
-        if (data.buyer) {
-          transactionData.Buyer = data.buyer;
-        }
-      }
 
-      console.log('Final SharePoint transaction data:', transactionData);
-      return transactionData;
+        console.log('Final SharePoint transaction data:', transactionData);
+        return transactionData;
 
-    case 'parts':
-      return {
-        Title: data.partId,
-        Description: data.description,
-        Category: data.category || 'Uncategorized',
-        InventoryOnHand: data.inventoryOnHand || 0,
-        UnitCost: data.unitCost || 0,
-        UnitPrice: data.unitPrice || 0,
-        Status: data.status || 'Active',
-      };
+      case 'parts':
+        return {
+          Title: data.partId,
+          Description: data.description,
+          Category: data.category || 'Uncategorized',
+          InventoryOnHand: data.inventoryOnHand || 0,
+          UnitCost: data.unitCost || 0,
+          UnitPrice: data.unitPrice || 0,
+          Status: data.status || 'Active'
+        };
 
-    case 'categories':
-      return {
-        Title: data.category,
-        Family: data.family || '',
-      };
+      case 'invoices':
+        return {
+          Title: data.invoiceNumber,
+          Buyer: data.buyer,
+          InvoiceDate: data.invoiceDate,
+          TotalAmount: data.totalAmount || 0,
+          Status: data.status || 'Draft',
+          Notes: data.notes || '',
+        };
 
-    case 'buyers':
-      return {
-        Title: data.buyerName,
-        ContactEmail: data.contactEmail || '',
-        Phone: data.phone || '',
-      };
-
-    case 'invoices':
-      return {
-        Title: data.invoiceNumber,
-        Buyer: data.buyer, // Direct text value (buyer name)
-        InvoiceDate: data.invoiceDate,
-        TotalAmount: data.totalAmount || 0,
-        Status: data.status || 'Draft',
-        Notes: data.notes || '',
-      };
-
-    default:
-      return data;
-  }
-}; 
+      default:
+        return { ...baseItem, ...fields };
+    }
+  }; 
 
 // =================================================================
 // SHAREPOINT SERVICE CLASS
