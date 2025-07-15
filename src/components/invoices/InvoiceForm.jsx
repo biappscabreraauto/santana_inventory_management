@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
@@ -10,7 +10,24 @@ import { useInvoice, useInvoices, useBuyers, useParts } from '../../hooks/useSha
 import { Plus, Minus, Search, Package, User, Calendar, DollarSign, Save, Send } from 'lucide-react'
 
 // =================================================================
-// INVOICE FORM COMPONENT - FULL SHAREPOINT INTEGRATION
+// MOCK DATA MOVED OUTSIDE COMPONENT TO PREVENT RE-RENDERS
+// =================================================================
+const mockBuyers = [
+  { id: '1', buyerName: 'AutoZone Distribution', contactEmail: 'orders@autozone.com', phone: '555-0101' },
+  { id: '2', buyerName: 'O\'Reilly Auto Parts', contactEmail: 'purchasing@oreillyauto.com', phone: '555-0102' },
+  { id: '3', buyerName: 'NAPA Auto Parts', contactEmail: 'wholesale@napaonline.com', phone: '555-0103' }
+]
+
+const mockParts = [
+  { id: '1', partId: 'BH001', description: 'Brake Hose - Front Left', unitPrice: 45.99, inventoryOnHand: 5 },
+  { id: '2', partId: 'BP002', description: 'Brake Pad Set - Premium', unitPrice: 129.99, inventoryOnHand: 12 },
+  { id: '3', partId: 'WB003', description: 'Wheel Bearing - Rear', unitPrice: 89.99, inventoryOnHand: 8 },
+  { id: '4', partId: 'OF004', description: 'Oil Filter - Standard', unitPrice: 16.99, inventoryOnHand: 25 },
+  { id: '5', partId: 'AF005', description: 'Air Filter - High Flow', unitPrice: 24.99, inventoryOnHand: 15 }
+]
+
+// =================================================================
+// INVOICE FORM COMPONENT - FIXED INFINITE LOOP
 // =================================================================
 const InvoiceForm = () => {
   const { id } = useParams()
@@ -21,9 +38,9 @@ const InvoiceForm = () => {
   const pageTitle = isEditMode ? 'Edit Invoice' : 'Create Invoice'
 
   // =================================================================
-  // INTEGRATION MODE TOGGLE (Same as Parts)
+  // INTEGRATION MODE TOGGLE
   // =================================================================
-  const [integrationMode, setIntegrationMode] = useState('mock') // Start with mock, then test, then live
+  const [integrationMode, setIntegrationMode] = useState('mock') // Start with mock
 
   // =================================================================
   // SHAREPOINT HOOKS
@@ -55,40 +72,32 @@ const InvoiceForm = () => {
   } = useParts()
 
   // =================================================================
-  // MOCK DATA (FALLBACK - Same Pattern as Parts)
+  // MOCK DATA FOR EDIT MODE (STATIC TO PREVENT RE-RENDERS)
   // =================================================================
-  const mockBuyers = [
-    { id: '1', buyerName: 'AutoZone Distribution', contactEmail: 'orders@autozone.com', phone: '555-0101' },
-    { id: '2', buyerName: 'O\'Reilly Auto Parts', contactEmail: 'purchasing@oreillyauto.com', phone: '555-0102' },
-    { id: '3', buyerName: 'NAPA Auto Parts', contactEmail: 'wholesale@napaonline.com', phone: '555-0103' }
-  ]
+  const mockInvoiceStatic = useMemo(() => {
+    if (!isEditMode) return null
+    return {
+      id: id,
+      invoiceNumber: 'INV-2025-001',
+      buyer: 'AutoZone Distribution',
+      buyerId: '1',
+      invoiceDate: '2025-01-14',
+      totalAmount: 350.97,
+      status: 'Draft',
+      notes: 'Sample invoice for testing'
+    }
+  }, [id, isEditMode])
 
-  const mockParts = [
-    { id: '1', partId: 'BH001', description: 'Brake Hose - Front Left', unitPrice: 45.99, inventoryOnHand: 5 },
-    { id: '2', partId: 'BP002', description: 'Brake Pad Set - Premium', unitPrice: 129.99, inventoryOnHand: 12 },
-    { id: '3', partId: 'WB003', description: 'Wheel Bearing - Rear', unitPrice: 89.99, inventoryOnHand: 8 },
-    { id: '4', partId: 'OF004', description: 'Oil Filter - Standard', unitPrice: 16.99, inventoryOnHand: 25 },
-    { id: '5', partId: 'AF005', description: 'Air Filter - High Flow', unitPrice: 24.99, inventoryOnHand: 15 }
-  ]
-
-  const mockInvoice = isEditMode ? {
-    id: id,
-    invoiceNumber: 'INV-2025-001',
-    buyer: 'AutoZone Distribution',
-    buyerId: '1',
-    invoiceDate: '2025-01-14',
-    totalAmount: 350.97,
-    status: 'Draft',
-    notes: 'Sample invoice for testing'
-  } : null
-
-  const mockLineItems = isEditMode ? [
-    { id: '1', partId: 'BH001', partData: mockParts[0], quantity: 2, unitPrice: 45.99, total: 91.98 },
-    { id: '2', partId: 'BP002', partData: mockParts[1], quantity: 2, unitPrice: 129.99, total: 259.98 }
-  ] : []
+  const mockLineItemsStatic = useMemo(() => {
+    if (!isEditMode) return []
+    return [
+      { id: '1', partId: 'BH001', partData: mockParts[0], quantity: 2, unitPrice: 45.99, total: 91.98 },
+      { id: '2', partId: 'BP002', partData: mockParts[1], quantity: 2, unitPrice: 129.99, total: 259.98 }
+    ]
+  }, [isEditMode])
 
   // =================================================================
-  // DATA SELECTION LOGIC (Same as Parts)
+  // DATA SELECTION LOGIC (FIXED)
   // =================================================================
   const {
     currentInvoice,
@@ -102,23 +111,35 @@ const InvoiceForm = () => {
       return {
         currentInvoice: sharePointInvoice,
         currentLineItems: sharePointLineItems,
-        buyers: sharePointBuyers,
-        parts: sharePointParts,
+        buyers: sharePointBuyers || [],
+        parts: sharePointParts || [],
         loading: invoiceLoading || buyersLoading || partsLoading || createLoading,
         dataError: invoiceError
       }
     } else {
       return {
-        currentInvoice: mockInvoice,
-        currentLineItems: mockLineItems,
+        currentInvoice: mockInvoiceStatic,
+        currentLineItems: mockLineItemsStatic,
         buyers: mockBuyers,
         parts: mockParts,
         loading: false,
         dataError: null
       }
     }
-  }, [integrationMode, sharePointInvoice, sharePointLineItems, sharePointBuyers, sharePointParts, 
-      invoiceLoading, buyersLoading, partsLoading, createLoading, invoiceError, mockInvoice, mockLineItems])
+  }, [
+    integrationMode, 
+    sharePointInvoice, 
+    sharePointLineItems, 
+    sharePointBuyers, 
+    sharePointParts, 
+    invoiceLoading, 
+    buyersLoading, 
+    partsLoading, 
+    createLoading, 
+    invoiceError, 
+    mockInvoiceStatic, 
+    mockLineItemsStatic
+  ])
 
   // =================================================================
   // STATE MANAGEMENT
@@ -177,9 +198,9 @@ const InvoiceForm = () => {
   }, [lineItems])
 
   // =================================================================
-  // HELPER FUNCTIONS
+  // HELPER FUNCTIONS (MEMOIZED TO PREVENT RE-RENDERS)
   // =================================================================
-  const generateInvoiceNumber = () => {
+  const generateInvoiceNumber = useCallback(() => {
     const now = new Date()
     const year = now.getFullYear()
     const month = String(now.getMonth() + 1).padStart(2, '0')
@@ -192,27 +213,27 @@ const InvoiceForm = () => {
       ...prev,
       invoiceNumber
     }))
-  }
+  }, [])
 
-  const formatCurrency = (amount) => {
+  const formatCurrency = useCallback((amount) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD'
     }).format(amount)
-  }
+  }, [])
 
-  const calculateTotals = () => {
+  const calculateTotals = useCallback(() => {
     const subtotal = lineItems.reduce((sum, item) => sum + (item.total || 0), 0)
     const tax = 0 // No tax calculation for now
     const total = subtotal + tax
 
     return { subtotal, tax, total }
-  }
+  }, [lineItems])
 
   // =================================================================
-  // EVENT HANDLERS
+  // EVENT HANDLERS (MEMOIZED)
   // =================================================================
-  const handleInputChange = (field, value) => {
+  const handleInputChange = useCallback((field, value) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -224,27 +245,29 @@ const InvoiceForm = () => {
     }))
 
     // Clear error for this field
-    if (errors[field]) {
-      setErrors(prev => ({
-        ...prev,
-        [field]: null
-      }))
-    }
-  }
+    setErrors(prev => {
+      if (prev[field]) {
+        const newErrors = { ...prev }
+        delete newErrors[field]
+        return newErrors
+      }
+      return prev
+    })
+  }, [])
 
-  const handleBuyerChange = (buyerId) => {
+  const handleBuyerChange = useCallback((buyerId) => {
     const selectedBuyer = buyers.find(b => b.id === buyerId)
     setFormData(prev => ({
       ...prev,
       buyer: selectedBuyer?.buyerName || '',
       buyerId: selectedBuyer?.id || null
     }))
-  }
+  }, [buyers])
 
   // =================================================================
-  // LINE ITEM MANAGEMENT
+  // LINE ITEM MANAGEMENT (MEMOIZED)
   // =================================================================
-  const addLineItem = (part = null) => {
+  const addLineItem = useCallback((part = null) => {
     const newItem = {
       id: Date.now(), // Temporary ID for new items
       partId: part?.partId || '',
@@ -261,9 +284,9 @@ const InvoiceForm = () => {
       setPartSearchTerm('')
       setShowPartDropdown(true)
     }
-  }
+  }, [lineItems.length])
 
-  const updateLineItem = (index, field, value) => {
+  const updateLineItem = useCallback((index, field, value) => {
     setLineItems(prev => {
       const updated = [...prev]
       updated[index] = {
@@ -280,9 +303,9 @@ const InvoiceForm = () => {
 
       return updated
     })
-  }
+  }, [])
 
-  const selectPartForLineItem = (index, part) => {
+  const selectPartForLineItem = useCallback((index, part) => {
     updateLineItem(index, 'partId', part.partId)
     updateLineItem(index, 'partData', part)
     updateLineItem(index, 'unitPrice', part.unitPrice)
@@ -294,16 +317,16 @@ const InvoiceForm = () => {
     setShowPartDropdown(false)
     setPartSearchTerm('')
     setActiveLineItemIndex(null)
-  }
+  }, [lineItems, updateLineItem])
 
-  const removeLineItem = (index) => {
+  const removeLineItem = useCallback((index) => {
     setLineItems(prev => prev.filter((_, i) => i !== index))
-  }
+  }, [])
 
   // =================================================================
   // VALIDATION
   // =================================================================
-  const validateForm = () => {
+  const validateForm = useCallback(() => {
     const newErrors = {}
 
     if (!formData.invoiceNumber.trim()) {
@@ -352,12 +375,12 @@ const InvoiceForm = () => {
 
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
-  }
+  }, [formData, lineItems])
 
   // =================================================================
-  // FORM SUBMISSION (Using SharePoint Hooks)
+  // FORM SUBMISSION (MEMOIZED)
   // =================================================================
-  const handleSubmit = async (e, actionType = 'save') => {
+  const handleSubmit = useCallback(async (e, actionType = 'save') => {
     e.preventDefault()
     
     if (!validateForm()) {
@@ -418,9 +441,24 @@ const InvoiceForm = () => {
     } finally {
       setSaving(false)
     }
-  }
+  }, [
+    validateForm, 
+    error, 
+    formData, 
+    calculateTotals, 
+    lineItems, 
+    isEditMode, 
+    integrationMode, 
+    updateInvoice, 
+    id, 
+    info, 
+    createInvoice, 
+    finalizeInvoice, 
+    success, 
+    navigate
+  ])
 
-  const handleDelete = async () => {
+  const handleDelete = useCallback(async () => {
     if (!confirm('Are you sure you want to delete this invoice? This action cannot be undone.')) {
       return
     }
@@ -443,10 +481,10 @@ const InvoiceForm = () => {
     } finally {
       setSaving(false)
     }
-  }
+  }, [integrationMode, deleteInvoice, info, success, navigate, error])
 
   // =================================================================
-  // FILTERED PARTS FOR SEARCH
+  // FILTERED PARTS FOR SEARCH (MEMOIZED)
   // =================================================================
   const filteredParts = useMemo(() => {
     if (!partSearchTerm.trim()) return []
@@ -458,7 +496,7 @@ const InvoiceForm = () => {
   }, [parts, partSearchTerm])
 
   // =================================================================
-  // INTEGRATION MODE DISPLAY (Same as Parts)
+  // INTEGRATION MODE DISPLAY
   // =================================================================
   if (integrationMode === 'test') {
     return (
@@ -525,7 +563,7 @@ const InvoiceForm = () => {
   // =================================================================
   return (
     <div className="space-y-6">
-      {/* Integration Mode Toggle (Same as Parts) */}
+      {/* Integration Mode Toggle */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-center justify-between">
           <div>
