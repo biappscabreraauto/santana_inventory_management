@@ -130,7 +130,7 @@ const transformSharePointItem = (sharePointItem, listType) => {
       return {
         ...baseItem,
         invoiceNumber: fields.Title,
-        buyer: fields.Buyer?.LookupValue || fields.Buyer,
+        buyer: fields.Buyer?.LookupValue || fields.Buyer || 'Unknown Buyer',
         buyerId: fields.Buyer?.LookupId || null,
         invoiceDate: fields.InvoiceDate,
         totalAmount: fields.TotalAmount || 0,
@@ -214,7 +214,7 @@ const transformToSharePoint = (data, listType) => {
     case 'invoices':
       return {
         Title: data.invoiceNumber,
-        Buyer: data.buyer,
+        Buyer: data.buyerId || data.buyer,
         InvoiceDate: data.invoiceDate,
         TotalAmount: data.totalAmount || 0,
         Status: data.status || 'Draft',
@@ -819,6 +819,68 @@ class SharePointService {
     return result;
   }
 
+/**
+   * Get single invoice by ID from SharePoint
+   * MISSING METHOD - Add this to your SharePoint service
+   */
+  async getInvoice(accessToken, invoiceId, options = {}) {
+    const cacheKey = `invoice_${invoiceId}`;
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
+
+    const graphClient = createGraphClient(accessToken);
+
+    const result = await this.executeGraphRequest(
+      graphClient,
+      async () => {
+        let query = graphClient.api(
+          `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.invoices}/items/${invoiceId}`
+        ).expand('fields');
+
+        // Add expand options if provided
+        if (options.expand && options.expand.includes('Buyer')) {
+          query = query.expand('fields($expand=Buyer)');
+        }
+
+        const response = await query.get();
+        return transformSharePointItem(response, 'invoices');
+      },
+      `Get Invoice ${invoiceId}`
+    );
+
+    this.setCache(cacheKey, result);
+    return result;
+  }
+
+  /**
+   * Get invoice by invoice number (not SharePoint ID)
+   * Useful for looking up invoices by their business ID
+   */
+  async getInvoiceByNumber(accessToken, invoiceNumber) {
+    const graphClient = createGraphClient(accessToken);
+
+    const result = await this.executeGraphRequest(
+      graphClient,
+      async () => {
+        const response = await graphClient
+          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.invoices}/items`)
+          .filter(`fields/Title eq '${invoiceNumber}'`)
+          .expand('fields')
+          .top(1)
+          .get();
+
+        if (response.value && response.value.length > 0) {
+          return transformSharePointItem(response.value[0], 'invoices');
+        }
+
+        return null;
+      },
+      `Get Invoice by Number ${invoiceNumber}`
+    );
+
+    return result;
+  }
+
   /**
    * Get single invoice by ID
    */
@@ -1075,7 +1137,8 @@ class SharePointService {
   }
 
   /**
-   * Create new transaction in SharePoint (simplified for text-based Part field)
+   * Create new transaction in SharePoint and update inventory levels
+   * FIXED: Now properly updates part inventory after transaction creation
    */
   async createTransaction(accessToken, transactionData) {
     const graphClient = createGraphClient(accessToken);
@@ -1083,24 +1146,120 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        // HYBRID SOLUTION: No need to resolve Part ID since it's now a text field
+        console.log('Creating transaction with data:', transactionData);
+
+        // Step 1: Create the transaction record
         const sharePointData = transformToSharePoint(transactionData, 'transactions');
-
-        console.log('Creating transaction with data:', sharePointData);
-
-        const response = await graphClient
+        const transactionResponse = await graphClient
           .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.transactions}/items`)
           .post({
             fields: sharePointData,
           });
 
-        return transformSharePointItem(response, 'transactions');
+        console.log('✅ Transaction created successfully:', transactionResponse.id);
+
+        // Step 2: Update the part's inventory level
+        await this.updatePartInventory(accessToken, transactionData.partId, transactionData.movementType, transactionData.quantity);
+
+        return transformSharePointItem(transactionResponse, 'transactions');
       },
-      'Create Transaction'
+      'Create Transaction and Update Inventory'
     );
 
     this.clearCache();
     return result;
+  }
+
+  /**
+   * Update part inventory levels based on transaction
+   * CRITICAL METHOD: Updates InventoryOnHand field in Parts list
+   */
+  async updatePartInventory(accessToken, partId, movementType, quantity) {
+    const graphClient = createGraphClient(accessToken);
+
+    try {
+      console.log(`🔄 Updating inventory for part ${partId}: ${movementType} ${quantity} units`);
+
+      // Step 1: Get current part data
+      const currentPart = await this.getPartByPartId(accessToken, partId);
+      if (!currentPart) {
+        throw new Error(`Part ${partId} not found`);
+      }
+
+      const currentInventory = currentPart.inventoryOnHand || 0;
+      console.log(`📦 Current inventory for ${partId}: ${currentInventory} units`);
+
+      // Step 2: Calculate new inventory level
+      let newInventory;
+      if (movementType === 'In (Received)' || movementType === 'Adjustment') {
+        newInventory = currentInventory + quantity;
+        console.log(`➕ Adding ${quantity} units: ${currentInventory} + ${quantity} = ${newInventory}`);
+      } else if (movementType === 'Out (Sold)') {
+        newInventory = currentInventory - quantity;
+        console.log(`➖ Removing ${quantity} units: ${currentInventory} - ${quantity} = ${newInventory}`);
+      } else {
+        throw new Error(`Unknown movement type: ${movementType}`);
+      }
+
+      // Prevent negative inventory
+      if (newInventory < 0) {
+        console.warn(`⚠️ Inventory would go negative for ${partId}: ${newInventory}. Setting to 0.`);
+        newInventory = 0;
+      }
+
+      // Step 3: Update the part's inventory in SharePoint
+      const updateData = {
+        InventoryOnHand: newInventory
+      };
+
+      await graphClient
+        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${currentPart.id}`)
+        .patch({
+          fields: updateData
+        });
+
+      console.log(`✅ Inventory updated successfully for ${partId}: ${currentInventory} → ${newInventory}`);
+
+      // Clear cache to ensure fresh data on next load
+      this.clearCache();
+
+      return {
+        partId,
+        previousInventory: currentInventory,
+        newInventory,
+        changeAmount: newInventory - currentInventory
+      };
+
+    } catch (error) {
+      console.error(`❌ Failed to update inventory for part ${partId}:`, error);
+      throw new Error(`Failed to update inventory for part ${partId}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get part by Part ID (not SharePoint item ID)
+   * Helper method for inventory updates
+   */
+  async getPartByPartId(accessToken, partId) {
+    const graphClient = createGraphClient(accessToken);
+
+    try {
+      const response = await graphClient
+        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
+        .filter(`fields/Title eq '${partId}'`)
+        .expand('fields')
+        .top(1)
+        .get();
+
+      if (response.value && response.value.length > 0) {
+        return transformSharePointItem(response.value[0], 'parts');
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`Failed to get part by ID ${partId}:`, error);
+      throw error;
+    }
   }
 
   /**

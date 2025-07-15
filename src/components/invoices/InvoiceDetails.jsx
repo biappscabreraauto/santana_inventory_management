@@ -1,24 +1,16 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import { 
   FileText, 
   ArrowLeft, 
   Edit3, 
   Trash2, 
-  Download, 
   Printer,
-  Send,
-  CheckCircle,
-  X,
   Calendar,
   User,
   DollarSign,
   Package,
-  Hash,
-  Clock,
-  Eye,
-  Copy,
-  ExternalLink
+  Hash
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
@@ -28,36 +20,45 @@ import LoadingSpinner from '../shared/LoadingSpinner'
 const InvoiceDetails = () => {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { isAuthenticated } = useAuth()
-  const { showToast } = useToast()
+  const { getAccessToken } = useAuth()
+  
+  // FIXED: Hooks called at component level only
+  const { success, error, warning } = useToast()
 
   // State
   const [invoice, setInvoice] = useState(null)
   const [lineItems, setLineItems] = useState([])
   const [transactions, setTransactions] = useState([])
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState('invoice')
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   // Load invoice data on component mount
   useEffect(() => {
-    if (isAuthenticated && id) {
+    if (id) {
       loadInvoiceData()
     }
-  }, [isAuthenticated, id])
+  }, [id])
 
   /**
    * Load complete invoice data including line items and transactions
+   * FIXED: Proper access token handling without hook calls in async functions
    */
   const loadInvoiceData = async () => {
     try {
       setLoading(true)
       
+      // FIXED: Get access token from auth hook (not service)
+      const accessToken = await getAccessToken()
+      
       // Load invoice with buyer information
-      const invoiceData = await sharePointService.getInvoice(id, {
-        expand: ['Buyer']
-      })
+      const invoiceData = await sharePointService.getInvoice(accessToken, id)
+
+      if (!invoiceData) {
+        setInvoice(null)
+        setLoading(false)
+        return
+      }
 
       // Transform invoice data
       const transformedInvoice = {
@@ -71,67 +72,45 @@ const InvoiceDetails = () => {
         totalAmount: invoiceData.totalAmount || 0,
         status: invoiceData.status || 'Draft',
         notes: invoiceData.notes || '',
-        createdBy: invoiceData.createdBy,
-        createdDate: new Date(invoiceData.created),
-        modifiedBy: invoiceData.modifiedBy,
-        modifiedDate: new Date(invoiceData.modified)
+        created: new Date(invoiceData.created),
+        modified: new Date(invoiceData.modified || invoiceData.created)
       }
 
       setInvoice(transformedInvoice)
 
-      // Load buyer details if available
-      if (transformedInvoice.buyer.id) {
-        await loadBuyerDetails(transformedInvoice.buyer.id)
-      }
-
       // Load related transactions (line items)
-      await loadInvoiceTransactions(invoiceData.fields.Title)
+      await loadInvoiceTransactions(accessToken, id)
 
-    } catch (error) {
-      console.error('Error loading invoice:', error)
-      showToast('Failed to load invoice details', 'error')
-      navigate('/invoices')
+    } catch (err) {
+      console.error('Error loading invoice:', err)
+      
+      // FIXED: Error handling without hook calls in catch blocks
+      if (err.message.includes('not found') || err.message.includes('404')) {
+        setInvoice(null) // This will trigger the "Invoice not found" UI
+      } else {
+        // Error is already destructured at component level
+        error('Failed to load invoice details')
+      }
     } finally {
       setLoading(false)
     }
   }
 
   /**
-   * Load buyer details
+   * Load invoice transactions (line items)
    */
-  const loadBuyerDetails = async (buyerId) => {
+  const loadInvoiceTransactions = async (accessToken, invoiceId) => {
     try {
-      const buyerData = await sharePointService.getBuyer(buyerId)
-      
-      setInvoice(prev => ({
-        ...prev,
-        buyer: {
-          ...prev.buyer,
-          contactEmail: buyerData.contactEmail,
-          phone: buyerData.phone
-        }
-      }))
-    } catch (error) {
-      console.error('Error loading buyer details:', error)
-    }
-  }
-
-  /**
-   * Load transactions related to this invoice
-   */
-  const loadInvoiceTransactions = async (invoiceNumber) => {
-    try {
-      const transactionsData = await sharePointService.getTransactions({
-        filter: `fields/Invoice eq '${invoiceNumber}'`,
-        expand: ['Part'],
-        orderBy: 'Created asc'
+      // Get transactions for this invoice
+      const transactionsData = await sharePointService.getTransactions(accessToken, {
+        filter: `fields/Invoice eq '${invoiceId}'`,
+        orderBy: 'fields/Created asc'
       })
 
-      // Transform transaction data to line items
+      // Transform to line items
       const items = transactionsData.map(transaction => ({
         id: transaction.id,
-        partId: transaction.partId || 'Unknown Part',
-        partDescription: '', // Will be loaded separately if needed
+        partId: transaction.partId,
         quantity: transaction.quantity,
         unitPrice: transaction.unitPrice || 0,
         total: transaction.quantity * (transaction.unitPrice || 0),
@@ -143,23 +122,23 @@ const InvoiceDetails = () => {
       setTransactions(transactionsData)
 
       // Load part details for each line item
-      await loadPartDetails(items)
+      await loadPartDetails(accessToken, items)
 
-    } catch (error) {
-      console.error('Error loading invoice transactions:', error)
-      showToast('Failed to load invoice line items', 'error')
+    } catch (err) {
+      console.error('Error loading invoice transactions:', err)
+      warning('Could not load invoice line items')
     }
   }
 
   /**
    * Load part details for line items
    */
-  const loadPartDetails = async (items) => {
+  const loadPartDetails = async (accessToken, items) => {
     try {
       const updatedItems = await Promise.all(
         items.map(async (item) => {
           try {
-            const parts = await sharePointService.getParts({
+            const parts = await sharePointService.getParts(accessToken, {
               filter: `fields/Title eq '${item.partId}'`,
               top: 1
             })
@@ -168,22 +147,22 @@ const InvoiceDetails = () => {
               const part = parts[0]
               return {
                 ...item,
-                partDescription: part.fields.Description,
-                category: part.fields.Category?.lookupValue,
-                currentInventory: part.fields.InventoryOnHand
+                partDescription: part.description,
+                category: part.category,
+                currentInventory: part.inventoryOnHand
               }
             }
             return item
-          } catch (error) {
-            console.error(`Error loading part ${item.partId}:`, error)
+          } catch (err) {
+            console.error(`Error loading part ${item.partId}:`, err)
             return item
           }
         })
       )
 
       setLineItems(updatedItems)
-    } catch (error) {
-      console.error('Error loading part details:', error)
+    } catch (err) {
+      console.error('Error loading part details:', err)
     }
   }
 
@@ -194,13 +173,15 @@ const InvoiceDetails = () => {
     try {
       setDeleting(true)
       
-      await sharePointService.deleteInvoice(id)
-      showToast('Invoice deleted successfully', 'success')
+      const accessToken = await getAccessToken()
+      await sharePointService.deleteInvoice(accessToken, id)
+      
+      success('Invoice deleted successfully')
       navigate('/invoices')
       
-    } catch (error) {
-      console.error('Error deleting invoice:', error)
-      showToast('Failed to delete invoice. Please try again.', 'error')
+    } catch (err) {
+      console.error('Error deleting invoice:', err)
+      error('Failed to delete invoice. Please try again.')
     } finally {
       setDeleting(false)
       setShowDeleteModal(false)
@@ -212,17 +193,18 @@ const InvoiceDetails = () => {
    */
   const handleStatusUpdate = async (newStatus) => {
     try {
-      await sharePointService.updateInvoice(id, { Status: newStatus })
+      const accessToken = await getAccessToken()
+      await sharePointService.updateInvoice(accessToken, id, { status: newStatus })
       
       setInvoice(prev => ({
         ...prev,
         status: newStatus
       }))
       
-      showToast(`Invoice marked as ${newStatus}`, 'success')
-    } catch (error) {
-      console.error('Error updating invoice status:', error)
-      showToast('Failed to update invoice status', 'error')
+      success(`Invoice marked as ${newStatus}`)
+    } catch (err) {
+      console.error('Error updating invoice status:', err)
+      error('Failed to update invoice status')
     }
   }
 
@@ -234,26 +216,7 @@ const InvoiceDetails = () => {
   }
 
   /**
-   * Handle export invoice
-   */
-  const handleExport = () => {
-    showToast('Export functionality coming soon!', 'info')
-  }
-
-  /**
-   * Copy invoice number to clipboard
-   */
-  const copyInvoiceNumber = async () => {
-    try {
-      await navigator.clipboard.writeText(invoice.invoiceNumber)
-      showToast('Invoice number copied to clipboard', 'success')
-    } catch (error) {
-      showToast('Failed to copy invoice number', 'error')
-    }
-  }
-
-  /**
-   * Format currency values
+   * Format currency for display
    */
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('en-US', {
@@ -263,549 +226,272 @@ const InvoiceDetails = () => {
   }
 
   /**
-   * Format dates
+   * Format date for display
    */
   const formatDate = (date) => {
-    return new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    }).format(date)
-  }
-
-  const formatDateTime = (date) => {
-    return new Intl.DateTimeFormat('en-US', {
+    if (!date) return 'N/A'
+    return new Date(date).toLocaleDateString('en-US', {
       year: 'numeric',
       month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(date)
+      day: 'numeric'
+    })
   }
 
-  /**
-   * Get status badge styling
-   */
-  const getStatusBadge = (status) => {
-    const baseClasses = 'inline-flex items-center px-3 py-1 rounded-full text-sm font-medium'
-    
-    switch (status) {
-      case 'Draft':
-        return `${baseClasses} bg-gray-100 text-gray-800`
-      case 'Finalized':
-        return `${baseClasses} bg-blue-100 text-blue-800`
-      case 'Paid':
-        return `${baseClasses} bg-green-100 text-green-800`
-      case 'Void':
-        return `${baseClasses} bg-red-100 text-red-800`
-      default:
-        return `${baseClasses} bg-gray-100 text-gray-800`
-    }
-  }
-
-  /**
-   * Calculate totals
-   */
-  const calculateTotals = () => {
-    const subtotal = lineItems.reduce((sum, item) => sum + item.total, 0)
-    const tax = 0 // No tax calculation for now
-    const total = subtotal + tax
-
-    return { subtotal, tax, total }
-  }
-
+  // =================================================================
+  // LOADING STATE
+  // =================================================================
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <LoadingSpinner size="lg" />
-      </div>
-    )
-  }
-
-  if (!invoice) {
-    return (
-      <div className="text-center py-12">
-        <FileText className="mx-auto h-12 w-12 text-gray-400" />
-        <h3 className="mt-2 text-sm font-medium text-gray-900">Invoice not found</h3>
-        <p className="mt-1 text-sm text-gray-500">The requested invoice could not be found.</p>
-        <div className="mt-6">
-          <Link
-            to="/invoices"
-            className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-          >
-            Back to Invoices
-          </Link>
+      <div className="min-h-[400px] flex items-center justify-center">
+        <div className="text-center">
+          <LoadingSpinner size="lg" />
+          <p className="mt-4 text-gray-600">Loading invoice...</p>
         </div>
       </div>
     )
   }
 
-  const totals = calculateTotals()
+  // =================================================================
+  // INVOICE NOT FOUND STATE
+  // =================================================================
+  if (!invoice) {
+    return (
+      <div className="min-h-[400px] flex items-center justify-center">
+        <div className="text-center">
+          <FileText className="mx-auto h-12 w-12 text-gray-400" />
+          <h3 className="mt-2 text-sm font-medium text-gray-900">Invoice not found</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            The requested invoice could not be found.
+          </p>
+          <div className="mt-6">
+            <Link
+              to="/invoices"
+              className="btn btn-primary"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Invoices
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
+  // =================================================================
+  // MAIN RENDER
+  // =================================================================
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between no-print">
+      <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <button
-            onClick={() => navigate('/invoices')}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+          <Link
+            to="/invoices"
+            className="btn btn-secondary"
           >
-            <ArrowLeft className="h-5 w-5 text-gray-600" />
-          </button>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <FileText className="h-6 w-6 text-blue-600" />
-              Invoice Details
+            <h1 className="text-2xl font-bold text-gray-900">
+              Invoice {invoice.invoiceNumber}
             </h1>
-            <p className="mt-1 text-sm text-gray-500">
-              View invoice information and transaction history
+            <p className="text-gray-600">
+              Created {formatDate(invoice.created)}
             </p>
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="mt-4 sm:mt-0 flex space-x-3">
+        <div className="flex space-x-2">
+          <Link
+            to={`/invoices/${id}/edit`}
+            className="btn btn-secondary"
+          >
+            <Edit3 className="h-4 w-4 mr-2" />
+            Edit
+          </Link>
           <button
             onClick={handlePrint}
-            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            className="btn btn-secondary"
           >
             <Printer className="h-4 w-4 mr-2" />
             Print
           </button>
           <button
-            onClick={handleExport}
-            className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+            onClick={() => setShowDeleteModal(true)}
+            className="btn btn-danger"
           >
-            <Download className="h-4 w-4 mr-2" />
-            Export
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete
           </button>
-          {invoice.status === 'Draft' && (
-            <Link
-              to={`/invoices/${id}/edit`}
-              className="inline-flex items-center px-3 py-2 border border-transparent shadow-sm text-sm leading-4 font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              <Edit3 className="h-4 w-4 mr-2" />
-              Edit
-            </Link>
-          )}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200 no-print">
-        <nav className="-mb-px flex space-x-8">
-          <button
-            onClick={() => setActiveTab('invoice')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'invoice'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            📄 Invoice
-          </button>
-          <button
-            onClick={() => setActiveTab('transactions')}
-            className={`py-2 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'transactions'
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-            }`}
-          >
-            🔄 Transactions ({transactions.length})
-          </button>
-        </nav>
-      </div>
-
-      {/* Invoice Tab */}
-      {activeTab === 'invoice' && (
-        <div className="space-y-6">
-          {/* Invoice Header */}
-          <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
-            <div className="bg-blue-50 px-6 py-4 border-b border-blue-100">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                    <Hash className="h-5 w-5 text-blue-600" />
-                    {invoice.invoiceNumber}
-                    <button
-                      onClick={copyInvoiceNumber}
-                      className="p-1 hover:bg-blue-100 rounded text-blue-600"
-                      title="Copy invoice number"
-                    >
-                      <Copy className="h-4 w-4" />
-                    </button>
-                  </h2>
-                  <div className="mt-1 flex items-center space-x-4 text-sm text-gray-600">
-                    <span className="flex items-center">
-                      <Calendar className="h-4 w-4 mr-1" />
-                      {formatDate(invoice.invoiceDate)}
-                    </span>
-                    <span className="flex items-center">
-                      <User className="h-4 w-4 mr-1" />
-                      {invoice.createdBy}
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-4 sm:mt-0">
-                  <span className={getStatusBadge(invoice.status)}>
-                    {invoice.status}
-                  </span>
-                </div>
+      {/* Invoice Details Card */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Invoice Info */}
+          <div>
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Invoice Information</h3>
+            <div className="space-y-2">
+              <div className="flex items-center">
+                <Hash className="h-4 w-4 text-gray-400 mr-2" />
+                <span className="text-sm text-gray-600">Number:</span>
+                <span className="text-sm font-medium ml-2">{invoice.invoiceNumber}</span>
               </div>
-            </div>
-
-            <div className="p-6">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Buyer Information */}
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-3">Bill To</h3>
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <div className="space-y-2">
-                      <div className="font-medium text-gray-900">
-                        {invoice.buyer.name}
-                      </div>
-                      {invoice.buyer.contactEmail && (
-                        <div className="text-sm text-gray-600">
-                          📧 {invoice.buyer.contactEmail}
-                        </div>
-                      )}
-                      {invoice.buyer.phone && (
-                        <div className="text-sm text-gray-600">
-                          📞 {invoice.buyer.phone}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Invoice Summary */}
-                <div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-3">Invoice Summary</h3>
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <dl className="space-y-2">
-                      <div className="flex justify-between text-sm">
-                        <dt className="text-gray-600">Items:</dt>
-                        <dd className="font-medium">{lineItems.length}</dd>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <dt className="text-gray-600">Subtotal:</dt>
-                        <dd className="font-medium">{formatCurrency(totals.subtotal)}</dd>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <dt className="text-gray-600">Tax:</dt>
-                        <dd className="font-medium">{formatCurrency(totals.tax)}</dd>
-                      </div>
-                      <div className="border-t border-gray-200 pt-2">
-                        <div className="flex justify-between">
-                          <dt className="text-base font-medium text-gray-900">Total:</dt>
-                          <dd className="text-lg font-bold text-gray-900">
-                            {formatCurrency(totals.total)}
-                          </dd>
-                        </div>
-                      </div>
-                    </dl>
-                  </div>
-                </div>
+              <div className="flex items-center">
+                <Calendar className="h-4 w-4 text-gray-400 mr-2" />
+                <span className="text-sm text-gray-600">Date:</span>
+                <span className="text-sm font-medium ml-2">{formatDate(invoice.invoiceDate)}</span>
+              </div>
+              <div className="flex items-center">
+                <DollarSign className="h-4 w-4 text-gray-400 mr-2" />
+                <span className="text-sm text-gray-600">Total:</span>
+                <span className="text-sm font-medium ml-2">{formatCurrency(invoice.totalAmount)}</span>
               </div>
             </div>
           </div>
 
-          {/* Line Items */}
-          <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-medium text-gray-900">Line Items</h3>
+          {/* Buyer Info */}
+          <div>
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Buyer Information</h3>
+            <div className="space-y-2">
+              <div className="flex items-center">
+                <User className="h-4 w-4 text-gray-400 mr-2" />
+                <span className="text-sm font-medium">{invoice.buyer.name}</span>
+              </div>
             </div>
-            <div className="overflow-x-auto">
+          </div>
+
+          {/* Status */}
+          <div>
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Status</h3>
+            <div className="space-y-2">
+              <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                invoice.status === 'Draft' ? 'bg-yellow-100 text-yellow-800' :
+                invoice.status === 'Finalized' ? 'bg-blue-100 text-blue-800' :
+                invoice.status === 'Paid' ? 'bg-green-100 text-green-800' :
+                'bg-red-100 text-red-800'
+              }`}>
+                {invoice.status}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Line Items */}
+      <div className="bg-white rounded-lg border border-gray-200">
+        <div className="px-6 py-4 border-b border-gray-200">
+          <h3 className="text-lg font-medium text-gray-900">Line Items</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Part
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Description
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Quantity
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Unit Price
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Total
+                </th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
               {lineItems.length === 0 ? (
-                <div className="text-center py-12">
-                  <Package className="mx-auto h-12 w-12 text-gray-400" />
-                  <h3 className="mt-2 text-sm font-medium text-gray-900">No line items</h3>
-                  <p className="mt-1 text-sm text-gray-500">
-                    No items found for this invoice.
-                  </p>
-                </div>
+                <tr>
+                  <td colSpan="5" className="px-6 py-12 text-center">
+                    <Package className="mx-auto h-12 w-12 text-gray-400" />
+                    <h3 className="mt-2 text-sm font-medium text-gray-900">No line items</h3>
+                    <p className="mt-1 text-sm text-gray-500">
+                      This invoice doesn't have any line items yet.
+                    </p>
+                  </td>
+                </tr>
               ) : (
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Part
-                      </th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Quantity
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Unit Price
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total
-                      </th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider no-print">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {lineItems.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4">
-                          <div className="flex flex-col">
-                            <div className="text-sm font-medium text-gray-900">
-                              {item.partId}
-                            </div>
-                            {item.partDescription && (
-                              <div className="text-sm text-gray-500">
-                                {item.partDescription}
-                              </div>
-                            )}
-                            {item.category && (
-                              <div className="text-xs text-gray-400">
-                                {item.category}
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <span className="text-sm font-medium text-gray-900">
-                            {item.quantity}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <span className="text-sm font-medium text-gray-900">
-                            {formatCurrency(item.unitPrice)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <span className="text-sm font-bold text-gray-900">
-                            {formatCurrency(item.total)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-center no-print">
-                          <Link
-                            to={`/parts?search=${item.partId}`}
-                            className="text-blue-600 hover:text-blue-800 p-1 rounded"
-                            title="View Part"
-                          >
-                            <ExternalLink className="h-4 w-4" />
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                lineItems.map((item) => (
+                  <tr key={item.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <Link
+                        to={`/parts/${item.partId}`}
+                        className="text-blue-600 hover:text-blue-800 font-medium"
+                      >
+                        {item.partId}
+                      </Link>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-900">{item.partDescription || 'No description'}</div>
+                      {item.category && (
+                        <div className="text-xs text-gray-500">{item.category}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {item.quantity}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatCurrency(item.unitPrice)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                      {formatCurrency(item.total)}
+                    </td>
+                  </tr>
+                ))
               )}
-            </div>
-          </div>
-
-          {/* Notes */}
-          {invoice.notes && (
-            <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-3">Notes</h3>
-              <div className="text-sm text-gray-700 whitespace-pre-wrap">
-                {invoice.notes}
-              </div>
-            </div>
-          )}
-
-          {/* Status Actions */}
-          {invoice.status !== 'Void' && (
-            <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6 no-print">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Status Actions</h3>
-              <div className="flex flex-wrap gap-3">
-                {invoice.status === 'Finalized' && (
-                  <button
-                    onClick={() => handleStatusUpdate('Paid')}
-                    className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-                  >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Mark as Paid
-                  </button>
-                )}
-                
-                {(invoice.status === 'Draft' || invoice.status === 'Finalized') && (
-                  <button
-                    onClick={() => handleStatusUpdate('Void')}
-                    className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                  >
-                    <X className="h-4 w-4 mr-2" />
-                    Void Invoice
-                  </button>
-                )}
-
-                {invoice.status === 'Draft' && (
-                  <button
-                    onClick={() => setShowDeleteModal(true)}
-                    className="inline-flex items-center px-4 py-2 border border-red-300 shadow-sm text-sm font-medium rounded-md text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                  >
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Delete Invoice
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Audit Information */}
-          <div className="bg-white shadow-sm rounded-lg border border-gray-200 p-6">
-            <h3 className="text-lg font-medium text-gray-900 mb-4">Audit Information</h3>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <dt className="text-sm font-medium text-gray-600">Created:</dt>
-                  <dd className="text-sm text-gray-900">
-                    {formatDateTime(invoice.createdDate)} by {invoice.createdBy}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-medium text-gray-600">Last Modified:</dt>
-                  <dd className="text-sm text-gray-900">
-                    {formatDateTime(invoice.modifiedDate)} by {invoice.modifiedBy}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          </div>
+            </tbody>
+          </table>
         </div>
-      )}
-
-      {/* Transactions Tab */}
-      {activeTab === 'transactions' && (
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h3 className="text-lg font-medium text-gray-900">Related Transactions</h3>
-            <div className="text-sm text-gray-500">
-              {transactions.length} transaction{transactions.length !== 1 ? 's' : ''}
-            </div>
-          </div>
-
-          {transactions.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-              <Clock className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">No transactions</h3>
-              <p className="mt-1 text-sm text-gray-500">
-                No transactions have been created for this invoice yet.
-              </p>
-            </div>
-          ) : (
-            <div className="bg-white shadow-sm rounded-lg border border-gray-200 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Date
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Part
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Type
-                      </th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Quantity
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Unit Price
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Total
-                      </th>
-                      <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {transactions.map((transaction) => (
-                      <tr key={transaction.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {formatDateTime(new Date(transaction.createdDateTime))}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
-                            {transaction.fields.Part?.lookupValue}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                            Out (Sold)
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center text-sm text-gray-900">
-                          -{transaction.fields.Quantity}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm text-gray-900">
-                          {formatCurrency(transaction.fields.UnitPrice)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900">
-                          {formatCurrency(transaction.fields.Quantity * transaction.fields.UnitPrice)}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-center">
-                          <Link
-                            to={`/parts?search=${transaction.fields.Part?.lookupValue}`}
-                            className="text-blue-600 hover:text-blue-800 p-1 rounded"
-                            title="View Part"
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      </div>
 
       {/* Delete Confirmation Modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
-            <div className="mt-3 text-center">
-              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
-                <Trash2 className="h-6 w-6 text-red-600" />
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4">
+            <div className="p-6">
+              <div className="flex items-center mb-4">
+                <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                  <Trash2 className="h-6 w-6 text-red-600" />
+                </div>
               </div>
-              <h3 className="text-lg leading-6 font-medium text-gray-900 mt-4">
-                Delete Invoice
-              </h3>
-              <div className="mt-2 px-7 py-3">
-                <p className="text-sm text-gray-500">
-                  Are you sure you want to delete invoice{' '}
-                  <span className="font-medium">{invoice.invoiceNumber}</span>?
+              <div className="text-center">
+                <h3 className="text-lg font-medium text-gray-900 mb-2">
+                  Delete Invoice
+                </h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  Are you sure you want to delete invoice {invoice.invoiceNumber}? 
                   This action cannot be undone.
                 </p>
-                {invoice.status === 'Finalized' && (
-                  <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                    <p className="text-sm text-yellow-800">
-                      ⚠️ Warning: This invoice has been finalized and may have associated transactions.
-                    </p>
-                  </div>
-                )}
               </div>
-              <div className="items-center px-4 py-3">
-                <div className="flex justify-center space-x-3">
-                  <button
-                    onClick={() => setShowDeleteModal(false)}
-                    className="px-4 py-2 bg-gray-500 text-white text-base font-medium rounded-md w-24 shadow-sm hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-300"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    disabled={deleting}
-                    className="px-4 py-2 bg-red-500 text-white text-base font-medium rounded-md w-24 shadow-sm hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-300 disabled:opacity-50"
-                  >
-                    {deleting ? (
-                      <LoadingSpinner size="sm" />
-                    ) : (
-                      'Delete'
-                    )}
-                  </button>
-                </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="btn btn-danger flex-1"
+                >
+                  {deleting ? (
+                    <>
+                      <LoadingSpinner size="sm" className="mr-2" />
+                      Deleting...
+                    </>
+                  ) : (
+                    'Delete Invoice'
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  disabled={deleting}
+                  className="btn btn-secondary flex-1"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           </div>
