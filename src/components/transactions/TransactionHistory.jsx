@@ -102,6 +102,14 @@ const TransactionHistory = () => {
   // =================================================================
   // UTILITY FUNCTIONS
   // =================================================================
+
+  // Helper function to determine if a movement type increases inventory
+  const isInventoryIncrease = (movementType) => {
+    return movementType?.includes('In') || 
+          movementType === 'Adjustment' || 
+          movementType === 'Void adjustment';
+  };
+
   const getSortIcon = (columnKey) => {
     if (sortConfig.key !== columnKey) return '↕️'
     return sortConfig.direction === 'asc' ? '↑' : '↓'
@@ -125,40 +133,33 @@ const TransactionHistory = () => {
     }).format(amount)
   }
 
-  // REVISED: Calculate transaction total based on movement type
   const getTransactionTotal = (transaction) => {
-    if (transaction.movementType?.includes('In') || transaction.movementType === 'Adjustment') {
-      // For inbound: Use unit cost
+    if (isInventoryIncrease(transaction.movementType)) {
       const cost = transaction.unitCost || 0
       return transaction.quantity * cost
     } else if (transaction.movementType?.includes('Out')) {
-      // For outbound: Use unit price
       const price = transaction.unitPrice || 0
       return transaction.quantity * price
     }
     return 0
   }
 
-  // REVISED: Get the appropriate unit value to display
   const getUnitValue = (transaction) => {
-    if (transaction.movementType?.includes('In') || transaction.movementType === 'Adjustment') {
-      // For inbound: Show unit cost
+    if (isInventoryIncrease(transaction.movementType)) {
       return transaction.unitCost || 0
     } else if (transaction.movementType?.includes('Out')) {
-      // For outbound: Show unit price
       return transaction.unitPrice || 0
     }
     return 0
   }
 
-  // REVISED: Get the unit value label
   const getUnitValueLabel = (transaction) => {
-    if (transaction.movementType?.includes('In') || transaction.movementType === 'Adjustment') {
+    if (isInventoryIncrease(transaction.movementType)) {
       return 'Unit Cost'
     } else if (transaction.movementType?.includes('Out')) {
       return 'Unit Price'
     }
-    return 'Unit Value'
+    return ''
   }
 
   // =================================================================
@@ -262,6 +263,7 @@ const TransactionHistory = () => {
               <option value="In (Received)">In (Received)</option>
               <option value="Out (Sold)">Out (Sold)</option>
               <option value="Adjustment">Adjustment</option>
+              <option value="Void adjustment">Void adjustment</option>
             </select>
           </div>
 
@@ -369,7 +371,7 @@ const TransactionHistory = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                        transaction.movementType?.includes('In') 
+                        isInventoryIncrease(transaction.movementType) 
                           ? 'bg-green-100 text-green-800' 
                           : 'bg-red-100 text-red-800'
                       }`}>
@@ -377,8 +379,8 @@ const TransactionHistory = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <span className={transaction.movementType?.includes('In') ? 'text-green-600' : 'text-red-600'}>
-                        {transaction.movementType?.includes('In') ? '+' : '-'}{transaction.quantity}
+                      <span className={isInventoryIncrease(transaction.movementType) ? 'text-green-600' : 'text-red-600'}>
+                        {isInventoryIncrease(transaction.movementType) ? '+' : '-'}{transaction.quantity}
                       </span>
                     </td>
                     {/* REVISED: Show appropriate unit value with label */}

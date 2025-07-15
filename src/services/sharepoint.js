@@ -156,7 +156,7 @@ const transformToSharePoint = (data, listType) => {
       };
 
       // CRITICAL FIX: Only set the relevant price field based on movement type
-      if (data.movementType === 'In (Received)' || data.movementType === 'Adjustment') {
+      if (data.movementType === 'In (Received)' || data.movementType === 'Adjustment' || data.movementType === 'Void adjustment') {
         // For INBOUND: Only set UnitCost, explicitly DO NOT set UnitPrice
         if (data.unitCost !== undefined && data.unitCost !== null) {
           transactionData.UnitCost = data.unitCost;
@@ -1011,7 +1011,7 @@ class SharePointService {
   }
 
   /**
-   * Void an invoice - NEW: Create offsetting transactions
+   * Void an invoice - FIXED: Uses invoice number to find transactions
    */
   async voidInvoice(accessToken, invoiceId) {
     const graphClient = createGraphClient(accessToken);
@@ -1033,13 +1033,17 @@ class SharePointService {
           throw new Error('Only Finalized or Paid invoices can be voided');
         }
 
-        // 2. Get original "Out" transactions for this invoice
+        console.log(`🔍 Looking for transactions for invoice number: ${invoice.invoiceNumber}`);
+
+        // 2. FIXED: Get original "Out" transactions using invoice number, not SharePoint ID
         const originalTransactions = await this.getTransactions(accessToken, {
-          filter: `fields/Invoice eq '${invoiceId}' and fields/MovementType eq 'Out (Sold)'`
+          filter: `fields/Invoice eq '${invoice.invoiceNumber}' and fields/MovementType eq 'Out (Sold)'`
         });
 
+        console.log(`📦 Found ${originalTransactions.length} transactions to void`);
+
         if (originalTransactions.length === 0) {
-          throw new Error('No transactions found for this invoice');
+          throw new Error(`No transactions found for invoice ${invoice.invoiceNumber}`);
         }
 
         // 3. Create offsetting "In" transactions
@@ -1047,30 +1051,21 @@ class SharePointService {
         for (const transaction of originalTransactions) {
           const voidTransactionData = {
             partId: transaction.partId,
-            movementType: 'In (Received)',
+            movementType: 'Void adjustment', // ← Change from 'In (Received)'
             quantity: transaction.quantity,
             unitCost: transaction.unitCost || 0,
             unitPrice: transaction.unitPrice || 0,
-            invoice: invoiceId,
+            invoice: invoice.invoiceNumber, // Use invoice number consistently
             buyer: transaction.buyer,
-            notes: `Void adjustment - Invoice ${invoiceId} voided`
+            notes: `Void adjustment - Invoice ${invoice.invoiceNumber} voided`
           };
 
+          console.log(`📝 Creating void transaction for part ${transaction.partId}`);
           const voidTransaction = await this.createTransaction(accessToken, voidTransactionData);
           voidTransactions.push(voidTransaction);
         }
 
-        // 4. Update inventory quantities (restore stock)
-        for (const transaction of originalTransactions) {
-          const part = await this.getPartById(accessToken, transaction.partId);
-          const newQuantity = part.inventoryOnHand + transaction.quantity;
-          
-          await this.updatePart(accessToken, transaction.partId, {
-            inventoryOnHand: newQuantity
-          });
-        }
-
-        // 5. Update invoice status to "Void"
+        // 4. Update invoice status to "Void"
         const sharePointData = transformToSharePoint({
           status: 'Void'
         }, 'invoices');
@@ -1082,6 +1077,8 @@ class SharePointService {
           .patch({
             fields: sharePointData,
           });
+
+        console.log(`✅ Invoice ${invoice.invoiceNumber} successfully voided with ${voidTransactions.length} offsetting transactions`);
 
         return {
           invoice: transformSharePointItem(response, 'invoices'),
@@ -1237,7 +1234,7 @@ class SharePointService {
 
       // Step 2: Calculate new inventory level
       let newInventory;
-      if (movementType === 'In (Received)' || movementType === 'Adjustment') {
+      if (movementType === 'In (Received)' || movementType === 'Adjustment' || movementType === 'Void adjustment') {
         newInventory = currentInventory + quantity;
         console.log(`➕ Adding ${quantity} units: ${currentInventory} + ${quantity} = ${newInventory}`);
       } else if (movementType === 'Out (Sold)') {
