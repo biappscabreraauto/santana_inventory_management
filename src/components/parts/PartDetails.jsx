@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
+import { usePart, usePartTransactions } from '../../hooks/useSharePoint'
 
 // =================================================================
-// PART DETAILS COMPONENT
+// PART DETAILS COMPONENT - LIVE SHAREPOINT DATA ONLY
 // =================================================================
 const PartDetails = () => {
   const { id } = useParams()
@@ -12,111 +13,43 @@ const PartDetails = () => {
   const { success, error, info } = useToast()
 
   // =================================================================
+  // SHAREPOINT HOOKS - LIVE DATA ONLY
+  // =================================================================
+  const { 
+    part, 
+    loading: partLoading, 
+    error: partError,
+    deletePart 
+  } = usePart(id)
+  
+  const {
+    transactions,
+    loading: transactionsLoading,
+    error: transactionsError
+  } = usePartTransactions(part?.partId) // Use the actual partId from SharePoint
+
+  // =================================================================
   // STATE MANAGEMENT
   // =================================================================
-  const [part, setPart] = useState(null)
-  const [transactions, setTransactions] = useState([])
-  const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('overview')
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
+  // Combined loading and error states
+  const loading = partLoading || transactionsLoading
+  const dataError = partError || transactionsError
+
   // =================================================================
-  // DATA FETCHING
+  // ERROR HANDLING
   // =================================================================
   useEffect(() => {
-    loadPartDetails()
-    loadTransactionHistory()
-  }, [id])
-
-  const loadPartDetails = async () => {
-    try {
-      setLoading(true)
-      
-      // TODO: Replace with actual SharePoint API call
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 800))
-      
-      // Mock part data
-      const mockPart = {
-        id: id,
-        partId: 'BH001',
-        description: 'Brake Hose - Front Left',
-        category: 'Brake Hose',
-        inventoryOnHand: 5,
-        unitCost: 25.99,
-        unitPrice: 45.99,
-        status: 'Active',
-        created: '2024-01-15T10:30:00Z',
-        modified: '2024-07-10T14:22:00Z',
-        createdBy: 'John Doe',
-        modifiedBy: 'Jane Smith'
-      }
-      
-      setPart(mockPart)
-    } catch (err) {
-      console.error('Error loading part details:', err)
+    if (partError) {
       error('Failed to load part details')
-    } finally {
-      setLoading(false)
     }
-  }
-
-  const loadTransactionHistory = async () => {
-    try {
-      // TODO: Replace with actual SharePoint API call
-      // Mock transaction history
-      const mockTransactions = [
-        {
-          id: '1',
-          date: '2024-07-12T09:15:00Z',
-          type: 'Out (Sold)',
-          quantity: 2,
-          unitPrice: 45.99,
-          invoice: 'INV-2024-001',
-          buyer: 'ABC Auto Shop',
-          notes: 'Regular customer order',
-          user: 'Jane Smith'
-        },
-        {
-          id: '2',
-          date: '2024-07-10T14:22:00Z',
-          type: 'In (Received)',
-          quantity: 10,
-          unitCost: 25.99,
-          supplier: 'Parts Warehouse Inc',
-          notes: 'Weekly inventory restock',
-          user: 'John Doe'
-        },
-        {
-          id: '3',
-          date: '2024-07-05T11:45:00Z',
-          type: 'Out (Sold)',
-          quantity: 3,
-          unitPrice: 45.99,
-          invoice: 'INV-2024-002',
-          buyer: 'Quick Fix Garage',
-          notes: 'Emergency order',
-          user: 'Mike Johnson'
-        },
-        {
-          id: '4',
-          date: '2024-06-28T16:30:00Z',
-          type: 'In (Received)',
-          quantity: 5,
-          unitCost: 24.50,
-          supplier: 'AutoParts Direct',
-          notes: 'Special bulk order discount',
-          user: 'Jane Smith'
-        }
-      ]
-      
-      setTransactions(mockTransactions)
-    } catch (err) {
-      console.error('Error loading transaction history:', err)
+    if (transactionsError) {
       error('Failed to load transaction history')
     }
-  }
+  }, [partError, transactionsError, error])
 
   // =================================================================
   // EVENT HANDLERS
@@ -125,12 +58,8 @@ const PartDetails = () => {
     try {
       setDeleting(true)
       
-      // TODO: Replace with actual SharePoint API call
-      console.log('Deleting part:', id)
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1500))
-      
+      // Use SharePoint service for real deletion
+      await deletePart()
       success('Part deleted successfully')
       navigate('/parts')
       
@@ -196,6 +125,30 @@ const PartDetails = () => {
     return (
       <div className="min-h-[400px] flex items-center justify-center">
         <LoadingSpinner size="lg" />
+      </div>
+    )
+  }
+
+  // =================================================================
+  // ERROR STATE
+  // =================================================================
+  if (dataError) {
+    return (
+      <div className="text-center py-12">
+        <div className="text-red-400 text-4xl mb-4">❌</div>
+        <h3 className="text-lg font-medium text-gray-900 mb-2">Error Loading Part</h3>
+        <p className="text-gray-600 mb-4">{dataError}</p>
+        <div className="space-x-3">
+          <button
+            onClick={() => window.location.reload()}
+            className="btn btn-primary"
+          >
+            🔄 Retry
+          </button>
+          <Link to="/parts" className="btn btn-secondary">
+            Back to Parts
+          </Link>
+        </div>
       </div>
     )
   }
@@ -335,7 +288,7 @@ const PartDetails = () => {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              📊 Transaction History
+              📊 Transaction History ({transactions?.length || 0})
             </button>
           </nav>
         </div>
@@ -432,7 +385,7 @@ const PartDetails = () => {
                 </button>
               </div>
 
-              {transactions.length === 0 ? (
+              {!transactions || transactions.length === 0 ? (
                 <div className="text-center py-8">
                   <div className="text-gray-400 text-3xl mb-3">📝</div>
                   <p className="text-gray-600">No transaction history available</p>
@@ -461,7 +414,7 @@ const PartDetails = () => {
                           Reference
                         </th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          User
+                          Notes
                         </th>
                       </tr>
                     </thead>
@@ -469,19 +422,19 @@ const PartDetails = () => {
                       {transactions.map((transaction) => (
                         <tr key={transaction.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {formatDate(transaction.date)}
+                            {formatDate(transaction.created)}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                              transaction.type.includes('In') 
+                              transaction.movementType?.includes('In') 
                                 ? 'bg-green-100 text-green-800' 
                                 : 'bg-red-100 text-red-800'
                             }`}>
-                              {transaction.type}
+                              {transaction.movementType}
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                            {transaction.type.includes('In') ? '+' : '-'}{transaction.quantity}
+                            {transaction.movementType?.includes('In') ? '+' : '-'}{transaction.quantity}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                             {formatCurrency(transaction.unitPrice || transaction.unitCost)}
@@ -498,15 +451,12 @@ const PartDetails = () => {
                                 {transaction.invoice}
                               </Link>
                             )}
-                            {transaction.supplier && (
+                            {!transaction.invoice && transaction.supplier && (
                               <span className="text-gray-600">{transaction.supplier}</span>
                             )}
-                            {transaction.buyer && (
-                              <span className="text-gray-600">{transaction.buyer}</span>
-                            )}
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {transaction.user}
+                          <td className="px-6 py-4 text-sm text-gray-500">
+                            {transaction.notes}
                           </td>
                         </tr>
                       ))}
@@ -516,7 +466,7 @@ const PartDetails = () => {
               )}
 
               {/* Transaction Summary */}
-              {transactions.length > 0 && (
+              {transactions && transactions.length > 0 && (
                 <div className="bg-gray-50 rounded-lg p-4 mt-6">
                   <h4 className="text-sm font-medium text-gray-900 mb-3">Summary</h4>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -528,7 +478,7 @@ const PartDetails = () => {
                       <span className="text-gray-600">Total In:</span>
                       <span className="ml-2 font-medium text-green-600">
                         +{transactions
-                          .filter(t => t.type.includes('In'))
+                          .filter(t => t.movementType?.includes('In'))
                           .reduce((sum, t) => sum + t.quantity, 0)
                         }
                       </span>
@@ -537,7 +487,7 @@ const PartDetails = () => {
                       <span className="text-gray-600">Total Out:</span>
                       <span className="ml-2 font-medium text-red-600">
                         -{transactions
-                          .filter(t => t.type.includes('Out'))
+                          .filter(t => t.movementType?.includes('Out'))
                           .reduce((sum, t) => sum + t.quantity, 0)
                         }
                       </span>

@@ -8,12 +8,14 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
-import { useCategories, usePart } from '../../hooks/useSharePoint'
+import { useCategories, usePart, useParts, useTransactions } from '../../hooks/useSharePoint'
 
 const PartForm = () => {
   const { id } = useParams()
   const navigate = useNavigate()
   const { success, error } = useToast()
+  const { createPart, updatePart } = useParts()
+  const { createTransaction } = useTransactions()
   
   const isEditMode = Boolean(id)
   const pageTitle = isEditMode ? 'Edit Part' : 'Add New Part'
@@ -122,13 +124,14 @@ const PartForm = () => {
   const validateForm = () => {
     const newErrors = {}
 
-    // Part validation (same as before)
+    // Part ID validation - FIXED to allow dashes and common part number characters
     if (!formData.partId.trim()) {
       newErrors.partId = 'Part ID is required'
     } else if (formData.partId.length < 2) {
       newErrors.partId = 'Part ID must be at least 2 characters'
-    } else if (!/^[A-Z0-9]+$/i.test(formData.partId)) {
-      newErrors.partId = 'Part ID can only contain letters and numbers'
+    } else if (!/^[A-Za-z0-9\-_.]+$/.test(formData.partId)) {
+      // Updated regex to allow: letters, numbers, dashes, underscores, and periods
+      newErrors.partId = 'Part ID can only contain letters, numbers, dashes (-), underscores (_), and periods (.)'
     }
 
     if (!formData.description.trim()) {
@@ -137,7 +140,8 @@ const PartForm = () => {
       newErrors.description = 'Description must be at least 5 characters'
     }
 
-    if (!formData.category) {
+    // FIXED: Check for empty string category
+    if (!formData.category || formData.category.trim() === '') {
       newErrors.category = 'Category is required'
     }
 
@@ -167,12 +171,11 @@ const PartForm = () => {
       }
     }
 
-    // NEW: Transaction validation for initial stock
+    // Transaction validation for initial stock
     if (!isEditMode && formData.inventoryOnHand > 0) {
       if (!transactionData.receiptDate) {
         newErrors.receiptDate = 'Receipt date is required for initial stock'
       }
-      // Supplier and notes are optional but recommended
     }
 
     setErrors(newErrors)
@@ -200,33 +203,38 @@ const PartForm = () => {
 
       console.log('Saving part data:', submissionData)
 
-      // NEW: Check if we need to create initial stock transaction
-      const willCreateTransaction = !isEditMode && formData.inventoryOnHand > 0
-
-      if (willCreateTransaction) {
-        console.log('Will create initial stock transaction:', {
-          partId: submissionData.partId,
-          quantity: submissionData.inventoryOnHand,
-          unitCost: submissionData.unitCost,
-          movementType: 'In (Received)',
-          supplier: transactionData.supplier || 'Initial Stock',
-          notes: transactionData.notes || 'Initial inventory setup',
-          receiptDate: transactionData.receiptDate
-        })
-      }
-      
-      // TODO: In real implementation, this would:
-      // 1. Create the part in SharePoint
-      // 2. If inventoryOnHand > 0, create transaction record
-      // 3. Both operations should be atomic (succeed together or fail together)
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1500))
-
+      // FIXED: Actually call the SharePoint service
       if (isEditMode) {
+        // Update existing part (updatePart expects partId as first parameter)
+        await updatePart(id, submissionData)
         success('Part updated successfully!')
       } else {
+        // Create new part
+        await createPart(submissionData)
+        
+        // Check if we need to create initial stock transaction
+        const willCreateTransaction = formData.inventoryOnHand > 0
+        
         if (willCreateTransaction) {
+          console.log('Creating initial stock transaction:', {
+            partId: submissionData.partId,
+            quantity: submissionData.inventoryOnHand,
+            unitCost: submissionData.unitCost,
+            movementType: 'In (Received)',
+            supplier: transactionData.supplier || 'Initial Stock',
+            notes: transactionData.notes || 'Initial inventory setup'
+          })
+          
+          // Create the transaction record
+          await createTransaction({
+            partId: submissionData.partId,
+            movementType: 'In (Received)',
+            quantity: submissionData.inventoryOnHand,
+            unitCost: submissionData.unitCost,
+            supplier: transactionData.supplier || 'Initial Stock',
+            notes: transactionData.notes || 'Initial inventory setup'
+          })
+          
           success(`Part created successfully! Initial stock transaction recorded for ${formData.inventoryOnHand} units.`)
         } else {
           success('Part created successfully!')

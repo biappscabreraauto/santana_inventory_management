@@ -76,7 +76,6 @@ const transformSharePointItem = (sharePointItem, listType) => {
     modifiedBy: sharePointItem.lastModifiedBy?.user?.displayName || 'Unknown',
   };
 
-  // SharePoint fields are now directly on the item object, not nested in 'fields'
   const fields = sharePointItem.fields || sharePointItem;
 
   switch (listType) {
@@ -85,7 +84,8 @@ const transformSharePointItem = (sharePointItem, listType) => {
         ...baseItem,
         partId: fields.Title,
         description: fields.Description,
-        category: fields.Category?.LookupValue || fields.Category,
+        // Handle lookup field properly - get the text value, not the ID
+        category: fields.Category?.LookupValue || fields.Category?.lookupValue || fields.Category,
         inventoryOnHand: fields.InventoryOnHand || 0,
         unitCost: fields.UnitCost || 0,
         unitPrice: fields.UnitPrice || 0,
@@ -139,13 +139,22 @@ const transformSharePointItem = (sharePointItem, listType) => {
 /**
  * Transform component data to SharePoint format
  */
-const transformToSharePoint = (data, listType) => {
+const transformToSharePoint = async (data, listType, accessToken = null) => {
   switch (listType) {
     case 'parts':
+      // Handle category lookup
+      let categoryLookup = data.category;
+      if (accessToken && data.category) {
+        const categoryId = await sharePointService.getCategoryLookupId(accessToken, data.category);
+        if (categoryId) {
+          categoryLookup = categoryId; // Use the lookup ID
+        }
+      }
+      
       return {
         Title: data.partId,
         Description: data.description,
-        Category: data.category,
+        Category: categoryLookup, // This will be the lookup ID
         InventoryOnHand: data.inventoryOnHand,
         UnitCost: data.unitCost,
         UnitPrice: data.unitPrice,
@@ -166,8 +175,15 @@ const transformToSharePoint = (data, listType) => {
       };
 
     case 'transactions':
+      // Handle part lookup for transactions
+      let partLookup = data.partId;
+      if (accessToken && data.partId) {
+        // You might need to implement getPartLookupId similar to getCategoryLookupId
+        // For now, we'll use the partId as is
+      }
+      
       return {
-        Part: data.partId,
+        Part: partLookup,
         MovementType: data.movementType,
         Quantity: data.quantity,
         UnitCost: data.unitCost,
@@ -354,12 +370,29 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        const sharePointData = transformToSharePoint(partData, 'parts');
+        // Resolve category name to ID for lookup field
+        let categoryId = null;
+        if (partData.category) {
+          categoryId = await this.getCategoryIdByName(accessToken, partData.category);
+          if (!categoryId) {
+            throw new Error(`Category "${partData.category}" not found. Please check that the category exists in the Categories list.`);
+          }
+        }
+
+        const sharePointData = {
+          Title: partData.partId,
+          Description: partData.description,
+          Category: categoryId, // Use the resolved ID
+          InventoryOnHand: partData.inventoryOnHand,
+          UnitCost: partData.unitCost,
+          UnitPrice: partData.unitPrice,
+          Status: partData.status,
+        };
+
+        console.log('SharePoint data being sent:', sharePointData);
 
         const response = await graphClient
-          .api(
-            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`
-          )
+          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
           .post({
             fields: sharePointData,
           });
@@ -382,12 +415,29 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        const sharePointData = transformToSharePoint(partData, 'parts');
+        // Resolve category name to ID for lookup field
+        let categoryId = null;
+        if (partData.category) {
+          categoryId = await this.getCategoryIdByName(accessToken, partData.category);
+          if (!categoryId) {
+            throw new Error(`Category "${partData.category}" not found. Please check that the category exists in the Categories list.`);
+          }
+        }
+
+        const sharePointData = {
+          Title: partData.partId,
+          Description: partData.description,
+          Category: categoryId, // Use the resolved ID
+          InventoryOnHand: partData.inventoryOnHand,
+          UnitCost: partData.unitCost,
+          UnitPrice: partData.unitPrice,
+          Status: partData.status,
+        };
+
+        console.log('SharePoint update data being sent:', sharePointData);
 
         const response = await graphClient
-          .api(
-            `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${partId}`
-          )
+          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${partId}`)
           .patch({
             fields: sharePointData,
           });
@@ -486,6 +536,63 @@ class SharePointService {
   async getCategoryNames(accessToken) {
     const categories = await this.getCategories(accessToken);
     return categories.map((cat) => cat.category);
+  }
+
+  /**
+   * Get category lookup ID by name
+   * @param {string} accessToken - Access token
+   * @param {string} categoryName - Category name to lookup
+   * @returns {Promise<number|null>} Category lookup ID
+   */
+  async getCategoryLookupId(accessToken, categoryName) {
+    if (!categoryName) return null;
+    
+    const graphClient = createGraphClient(accessToken);
+    
+    try {
+      const response = await graphClient
+        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.categories}/items?$expand=fields`)
+        .filter(`fields/Title eq '${categoryName}'`)
+        .top(1)
+        .get();
+      
+      if (response.value && response.value.length > 0) {
+        return response.value[0].id;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error getting category lookup ID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get category ID by name for lookup fields
+   */
+  async getCategoryIdByName(accessToken, categoryName) {
+    if (!categoryName) return null;
+    
+    const graphClient = createGraphClient(accessToken);
+    
+    try {
+      const response = await graphClient
+        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.categories}/items?$expand=fields`)
+        .filter(`fields/Title eq '${categoryName.replace(/'/g, "''")}'`) // Escape single quotes
+        .top(1)
+        .get();
+      
+      if (response.value && response.value.length > 0) {
+        console.log(`Found category "${categoryName}" with ID:`, response.value[0].id);
+        return response.value[0].id;
+      }
+      
+      console.warn(`Category "${categoryName}" not found in SharePoint`);
+      return null;
+    } catch (error) {
+      console.error('Error getting category ID:', error);
+      return null;
+    }
   }
 
   // =================================================================
