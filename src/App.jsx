@@ -10,8 +10,9 @@ import { ToastProvider } from './context/ToastContext'
 import Layout from './components/shared/Layout'
 import LoadingSpinner from './components/shared/LoadingSpinner'
 
-// Import auth component
+// Import auth components
 import AuthButton from './components/auth/AuthButton'
+import ProtectedRoute from './components/ProtectedRoute';
 
 // ================================================================
 // LAZY LOADED COMPONENTS
@@ -93,39 +94,41 @@ const UnauthenticatedView = () => (
 // ================================================================
 const AuthenticatedRoutes = () => (
   <Layout>
-    <Suspense fallback={<PageLoader />}>
-      <Routes>
-        {/* Dashboard - Default route */}
-        <Route path="/" element={<Dashboard />} />
-        
-        {/* Parts Management */}
-        <Route path="/parts" element={<PartsTable />} />
-        <Route path="/parts/new" element={<PartForm />} />
-        <Route path="/parts/test-page" element={<TestPage />} />
-        <Route path="/parts/:id" element={<PartDetails />} />
-        <Route path="/parts/:id/edit" element={<PartForm />} />
-        
-        {/* Buyers Management */}
-        <Route path="/buyers" element={<BuyersTable />} />
-        <Route path="/buyers/new" element={<BuyerForm />} />
-        <Route path="/buyers/:id/edit" element={<BuyerForm />} />
-        
-        {/* Invoice Management */}
-        <Route path="/invoices" element={<InvoiceList />} />
-        <Route path="/invoices/new" element={<InvoiceForm />} />
-        <Route path="/invoices/:id" element={<InvoiceDetails />} />
-        
-        {/* Transaction Management */}
-        <Route path="/transactions" element={<TransactionHistory />} />
-        <Route path="/transactions/new" element={<TransactionForm />} />
-        
-        {/* External Lookup */}
-        <Route path="/external-lookup" element={<ExternalLookup />} />
-        
-        {/* Catch-all redirect */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Suspense>
+    <ProtectedRoute>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          {/* Dashboard - Default route */}
+          <Route path="/" element={<Dashboard />} />
+          
+          {/* Parts Management */}
+          <Route path="/parts" element={<PartsTable />} />
+          <Route path="/parts/new" element={<PartForm />} />
+          <Route path="/parts/test-page" element={<TestPage />} />
+          <Route path="/parts/:id" element={<PartDetails />} />
+          <Route path="/parts/:id/edit" element={<PartForm />} />
+          
+          {/* Buyers Management */}
+          <Route path="/buyers" element={<BuyersTable />} />
+          <Route path="/buyers/new" element={<BuyerForm />} />
+          <Route path="/buyers/:id/edit" element={<BuyerForm />} />
+          
+          {/* Invoice Management */}
+          <Route path="/invoices" element={<InvoiceList />} />
+          <Route path="/invoices/new" element={<InvoiceForm />} />
+          <Route path="/invoices/:id" element={<InvoiceDetails />} />
+          
+          {/* Transaction Management */}
+          <Route path="/transactions" element={<TransactionHistory />} />
+          <Route path="/transactions/new" element={<TransactionForm />} />
+          
+          {/* External Lookup */}
+          <Route path="/external-lookup" element={<ExternalLookup />} />
+          
+          {/* Catch-all redirect */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
+    </ProtectedRoute>  {/* ← Changed this: was <ProtectedRoute>, should be </ProtectedRoute> */}
   </Layout>
 )
 

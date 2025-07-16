@@ -134,6 +134,15 @@ const transformSharePointItem = (sharePointItem, listType) => {
         notes: fields.Notes || '',
       };
 
+    case 'authorizedUsers':
+      return {
+        ...baseItem,
+        userEmail: fields.Title,
+        displayName: fields.DisplayName || '',
+        role: fields.Role || 'User',
+        isActive: fields.IsActive !== false
+      };
+
     default:
       return { ...baseItem, ...fields };
   }
@@ -1721,6 +1730,107 @@ class SharePointService {
 
     return results;
   }
+
+  /**
+   * Get all authorized users from SharePoint
+   */
+  async getAuthorizedUsers(accessToken, options = {}) {
+    console.log('🔥 getAuthorizedUsers called, using list name:', SHAREPOINT_CONFIG.lists.authorizedUsers);
+    console.log('🔥 Full SHAREPOINT_CONFIG.lists:', SHAREPOINT_CONFIG.lists);
+    
+    const cacheKey = `authorized_users_${JSON.stringify(options)}`;
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
+
+    const graphClient = createGraphClient(accessToken);
+
+    const result = await this.executeGraphRequest(
+      graphClient,
+      async () => {
+        let query = graphClient.api(
+          `/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.authorizedUsers}/items?$expand=fields`
+        );
+
+        if (options.filter) {
+          query = query.filter(options.filter);
+        }
+
+        // Only get active users by default
+        if (!options.includeInactive) {
+          query = query.filter("fields/IsActive eq true");
+        }
+
+        query = query.orderby('fields/DisplayName');
+
+        const response = await query.get();
+        return response.value.map((item) =>
+          transformSharePointItem(item, 'authorizedUsers')
+        );
+      },
+      'Get Authorized Users'
+    );
+
+    // Cache for 10 minutes
+    this.setCache(cacheKey, result, 10 * 60 * 1000);
+    return result;
+  }
+
+  /**
+   * Check if a specific user is authorized
+   */
+  async isUserAuthorized(accessToken, userEmail) {
+    try {
+      const authorizedUsers = await this.getAuthorizedUsers(accessToken);
+      
+      const user = authorizedUsers.find(u => 
+        u.userEmail.toLowerCase() === userEmail.toLowerCase() && 
+        u.isActive === true
+      );
+      
+      return {
+        isAuthorized: !!user,
+        user: user || null,
+        role: user?.role || null
+      };
+    } catch (error) {
+      console.error('Error checking user authorization:', error);
+      return {
+        isAuthorized: false,
+        user: null,
+        role: null,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Add a new authorized user
+   */
+  async addAuthorizedUser(accessToken, userData) {
+    const graphClient = createGraphClient(accessToken);
+    
+    const newUser = {
+      Title: userData.userEmail,
+      DisplayName: userData.displayName,
+      Role: userData.role || 'User',
+      IsActive: true
+    };
+
+    const result = await this.executeGraphRequest(
+      graphClient,
+      async () => {
+        return await graphClient
+          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.authorizedUsers}/items`)
+          .post({ fields: newUser });
+      },
+      'Add Authorized User'
+    );
+
+    // Clear cache to ensure fresh data
+    this.clearCachePattern('authorized_users');
+    return transformSharePointItem(result, 'authorizedUsers');
+  }
+
 }
 
 // =================================================================

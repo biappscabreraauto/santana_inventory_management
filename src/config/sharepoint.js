@@ -19,7 +19,8 @@ export const SHAREPOINT_CONFIG = {
     categories: import.meta.env.VITE_CATEGORIES_LIST_NAME || 'simt_Categories',
     buyers: import.meta.env.VITE_BUYERS_LIST_NAME || 'simt_Buyers',
     invoices: import.meta.env.VITE_INVOICES_LIST_NAME || 'simt_Invoices',
-    transactions: import.meta.env.VITE_TRANSACTIONS_LIST_NAME || 'simt_Transactions'
+    transactions: import.meta.env.VITE_TRANSACTIONS_LIST_NAME || 'simt_Transactions',
+    authorizedUsers: 'simt_AuthorizedUsers'  // Make sure this line is here!
   },
 
   // API configuration
@@ -49,6 +50,75 @@ export const SHAREPOINT_CONFIG = {
     fallbackCategory: 'Uncategorized'
   }
 }
+
+console.log('🔥 CONFIG FILE LOADED - lists object:', SHAREPOINT_CONFIG.lists);
+console.log('🔥 CONFIG FILE - authorizedUsers value:', SHAREPOINT_CONFIG.lists.authorizedUsers);
+
+// =================================================================
+// ALWAYS RUNNING DEBUG (ADD THIS RIGHT AFTER SHAREPOINT_CONFIG)
+// =================================================================
+console.log('🔥 SHAREPOINT CONFIG FILE IS LOADING');
+console.log('🚨 SHAREPOINT CONFIG DEBUG (ALWAYS RUNS):');
+console.log('  All lists:', SHAREPOINT_CONFIG.lists);
+console.log('  authorizedUsers value:', SHAREPOINT_CONFIG.lists.authorizedUsers);
+console.log('  Environment var VITE_AUTHORIZED_USERS_LIST_NAME:', import.meta.env.VITE_AUTHORIZED_USERS_LIST_NAME);
+console.log('  Environment var VITE_DEBUG_MODE:', import.meta.env.VITE_DEBUG_MODE);
+
+// =================================================================
+// AUTHORIZED USERS LIST SCHEMA (ADD THIS AFTER DEBUG SECTION)
+// =================================================================
+export const AUTHORIZED_USERS_SCHEMA = {
+  fieldMapping: {
+    'Title': 'userEmail',
+    'DisplayName': 'displayName',
+    'Role': 'role',
+    'IsActive': 'isActive'
+  },
+  
+  fieldTypes: {
+    userEmail: 'string',
+    displayName: 'string',
+    role: 'choice',
+    isActive: 'boolean'
+  },
+  
+  choices: {
+    role: ['Admin', 'User', 'ReadOnly']
+  },
+  
+  requiredFields: ['userEmail', 'displayName', 'role', 'isActive'],
+  searchableFields: ['userEmail', 'displayName', 'role'],
+  displayFields: ['userEmail', 'displayName', 'role', 'isActive', 'created', 'createdBy']
+}
+
+// =================================================================
+// DEVELOPMENT LOGGING (CONDITIONAL DEBUG)
+// =================================================================
+if (import.meta.env.VITE_DEBUG_MODE === 'true') {
+  const validation = validateSharePointConfig()
+  const hybridStatus = getHybridSolutionStatus()
+  
+  if (validation.isValid) {
+    console.log('✅ SharePoint configuration is valid')
+  } else {
+    console.warn('⚠️ SharePoint configuration issues:', validation.issues)
+  }
+
+  if (validation.warnings.length > 0) {
+    console.warn('⚠️ SharePoint configuration warnings:', validation.warnings)
+  }
+  
+  console.log('📋 SharePoint Lists:', SHAREPOINT_CONFIG.lists)
+  console.log('🔀 Hybrid Solution Status:', hybridStatus)
+  console.log('🔍 All Environment Variables:', import.meta.env)
+  console.log('🔍 Authorized Users List Name:', import.meta.env.VITE_AUTHORIZED_USERS_LIST_NAME)
+  console.log('🔍 All Lists Config:', SHAREPOINT_CONFIG.lists)
+  
+  // HYBRID SOLUTION: Log category configuration
+  console.log('📂 Available Families:', FAMILY_UTILS.getAvailableFamilies())
+  console.log('🏷️ Category Field Type:', PARTS_SCHEMA.fieldTypes.category)
+}
+
 
 // =================================================================
 // SHAREPOINT LIST SCHEMA DEFINITIONS - HYBRID SOLUTION ENHANCED
@@ -677,33 +747,6 @@ export const getHybridSolutionStatus = () => {
     availableFamilies: FAMILY_UTILS.getAvailableFamilies(),
     configurationValid: validateSharePointConfig().isValid
   }
-}
-
-// =================================================================
-// DEVELOPMENT LOGGING
-// =================================================================
-
-// Log configuration status in development
-if (import.meta.env.VITE_DEBUG_MODE === 'true') {
-  const validation = validateSharePointConfig()
-  const hybridStatus = getHybridSolutionStatus()
-  
-  if (validation.isValid) {
-    console.log('✅ SharePoint configuration is valid')
-  } else {
-    console.warn('⚠️ SharePoint configuration issues:', validation.issues)
-  }
-
-  if (validation.warnings.length > 0) {
-    console.warn('⚠️ SharePoint configuration warnings:', validation.warnings)
-  }
-  
-  console.log('📋 SharePoint Lists:', SHAREPOINT_CONFIG.lists)
-  console.log('🔀 Hybrid Solution Status:', hybridStatus)
-  
-  // HYBRID SOLUTION: Log category configuration
-  console.log('📂 Available Families:', FAMILY_UTILS.getAvailableFamilies())
-  console.log('🏷️ Category Field Type:', PARTS_SCHEMA.fieldTypes.category)
 }
 
 // =================================================================

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { useMsal, useAccount, useIsAuthenticated } from '@azure/msal-react'
 import { loginRequest, createSilentRequest, MSAL_ERRORS, isMsalError } from '../config/msal'
+import sharePointService from '../services/sharepoint'
 
 // =================================================================
 // AUTH CONTEXT CREATION
@@ -22,6 +23,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [permissions, setPermissions] = useState([])
+  const [userRole, setUserRole] = useState(null)
+  const [authorizationChecked, setAuthorizationChecked] = useState(false)
 
   // =================================================================
   // AUTHENTICATION FUNCTIONS
@@ -168,6 +171,40 @@ export const AuthProvider = ({ children }) => {
     console.error('🔐 Auth Error:', errorMessage, error)
   }, [])
 
+  /**
+   * Validate user against SharePoint whitelist
+   */
+  const validateUserAuthorization = useCallback(async () => {
+    if (!isAuthenticated || !accessToken || !user?.email) {
+      return false;
+    }
+
+    try {
+      setAuthorizationChecked(false);
+      
+      // Check if user is in the authorized users list
+      const authResult = await sharePointService.isUserAuthorized(accessToken, user.email);
+      
+      if (!authResult.isAuthorized) {
+        setError(`Access denied. You are not authorized to use this application. Please contact your administrator.`);
+        await signOut();
+        return false;
+      }
+
+      // Set user role from whitelist
+      setUserRole(authResult.role);
+      setAuthorizationChecked(true);
+      
+      console.log(`✅ User authorized with role: ${authResult.role}`);
+      return true;
+      
+    } catch (error) {
+      console.error('Authorization check failed:', error);
+      setError('Unable to verify access permissions. Please try again or contact your administrator.');
+      return false;
+    }
+  }, [isAuthenticated, accessToken, user?.email, signOut]);
+
   // =================================================================
   // EFFECTS
   // =================================================================
@@ -209,6 +246,13 @@ export const AuthProvider = ({ children }) => {
     return () => clearTimeout(timer)
   }, [])
 
+  // Add useEffect to run authorization check after authentication
+  useEffect(() => {
+    if (isAuthenticated && accessToken && user && !authorizationChecked) {
+      validateUserAuthorization();
+    }
+  }, [isAuthenticated, accessToken, user, authorizationChecked, validateUserAuthorization]);
+
   // =================================================================
   // CONTEXT VALUE
   // =================================================================
@@ -219,6 +263,9 @@ export const AuthProvider = ({ children }) => {
     loading,
     error,
     permissions,
+    userRole,
+    authorizationChecked,
+    validateUserAuthorization,
     
     // Token management
     accessToken,
@@ -231,6 +278,12 @@ export const AuthProvider = ({ children }) => {
     
     // Utility functions
     hasPermission,
+    
+    // Helper function to check role-based permissions
+    hasRole: useCallback((requiredRole) => {
+      const roleHierarchy = { 'ReadOnly': 1, 'User': 2, 'Admin': 3 };
+      return roleHierarchy[userRole] >= roleHierarchy[requiredRole];
+    }, [userRole]),
     
     // MSAL instance and account (for advanced usage)
     instance,
