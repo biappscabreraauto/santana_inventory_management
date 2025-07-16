@@ -353,8 +353,35 @@ class SharePointService {
   }
 
   /**
-   * Get single part by Part ID (Title field) - FIXED VERSION
-   * This method finds parts using the Part ID (Title field), not SharePoint item ID
+   * Get single part by SharePoint item ID (not Part ID)
+   * This method gets parts using the SharePoint item ID directly
+   */
+  async getPartByItemId(accessToken, itemId) {
+    const cacheKey = `part_item_${itemId}`;
+    const cached = this.getFromCache(cacheKey);
+    if (cached) return cached;
+
+    const graphClient = createGraphClient(accessToken);
+
+    const result = await this.executeGraphRequest(
+      graphClient,
+      async () => {
+        const response = await graphClient
+          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${itemId}?$expand=fields`)
+          .get();
+
+        return transformSharePointItem(response, 'parts');
+      },
+      `Get Part by Item ID ${itemId}`
+    );
+
+    this.setCache(cacheKey, result);
+    return result;
+  }
+
+  // Also update your existing getPartById method to have better error handling
+  /**
+   * Get single part by Part ID (Title field) - EXISTING METHOD WITH BETTER ERROR HANDLING
    */
   async getPartById(accessToken, partId) {
     const cacheKey = `part_${partId}`;
@@ -366,7 +393,6 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        // ✅ FIXED: Use filter to find part by Part ID (Title field)
         const response = await graphClient
           .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
           .filter(`fields/Title eq '${partId}'`)
@@ -378,6 +404,7 @@ class SharePointService {
           return transformSharePointItem(response.value[0], 'parts');
         }
 
+        // Return null instead of throwing error - let components handle "not found"
         return null;
       },
       `Get Part by ID ${partId}`

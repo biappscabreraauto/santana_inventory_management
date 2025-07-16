@@ -252,6 +252,7 @@ export const usePart = (partId) => {
 
   /**
    * Load single part from SharePoint
+   * FIXED: Detects whether ID is SharePoint item ID or Part ID
    */
   const loadPart = useCallback(async () => {
     if (!partId) {
@@ -263,10 +264,24 @@ export const usePart = (partId) => {
       setLoading(true)
       setError(null)
       
-      const result = await executeOperation(
-        (token) => sharePointService.getPartById(token, partId),
-        'Failed to load part details'
-      )
+      let result;
+      
+      // Detect if partId is a SharePoint item ID (number) or Part ID (string)
+      if (/^\d+$/.test(partId)) {
+        // It's a SharePoint item ID (like "46")
+        console.log(`🔍 Loading part by SharePoint item ID: ${partId}`);
+        result = await executeOperation(
+          (token) => sharePointService.getPartByItemId(token, partId),
+          'Failed to load part details'
+        )
+      } else {
+        // It's a Part ID (like "BH001")
+        console.log(`🔍 Loading part by Part ID: ${partId}`);
+        result = await executeOperation(
+          (token) => sharePointService.getPartById(token, partId),
+          'Failed to load part details'
+        )
+      }
       
       if (isMountedRef.current) {
         setPart(result)
