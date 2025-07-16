@@ -9,9 +9,10 @@ import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import { useTransactions } from '../../hooks/useSharePoint'
+import { exportTransactionsToCSV } from '../../utils/csvExport'
 
 const TransactionHistory = () => {
-  const { info } = useToast()
+  const { success, showError, warning } = useToast()
   const { transactions, loading, error, refreshTransactions } = useTransactions()
 
   // =================================================================
@@ -84,7 +85,18 @@ const TransactionHistory = () => {
   }
 
   const handleExportTransactions = () => {
-    info('Export functionality coming soon!')
+    try {
+      if (filteredTransactions.length === 0) {
+        warning('No transactions to export')
+        return
+      }
+      
+      exportTransactionsToCSV(filteredTransactions, 'transactions-export')
+      success(`Exported ${filteredTransactions.length} transactions to CSV`)
+    } catch (err) {
+      console.error('Export error:', err)
+      showError('Failed to export transactions')
+    }
   }
 
   const handleRefreshData = () => {

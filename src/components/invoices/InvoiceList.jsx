@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
+import { exportInvoicesToCSV } from '../../utils/csvExport'
 
 // Import SharePoint hooks - UPDATED: Removed delete methods
 import { useInvoices, useBuyers } from '../../hooks/useSharePoint'

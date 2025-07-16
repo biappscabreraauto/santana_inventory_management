@@ -144,10 +144,6 @@ const PartDetails = () => {
     }
   }
 
-  const handleExportHistory = () => {
-    info('Export functionality coming soon!')
-  }
-
   // =================================================================
   // UTILITY FUNCTIONS
   // =================================================================
@@ -564,14 +560,8 @@ const PartDetails = () => {
           {/* Transaction History Tab */}
           {activeTab === 'history' && (
             <div className="space-y-4">
-              <div className="flex justify-between items-center">
+              <div className="text-lg font-medium text-gray-900 mb-4">
                 <h3 className="text-lg font-medium text-gray-900">Transaction History</h3>
-                <button
-                  onClick={handleExportHistory}
-                  className="btn btn-secondary"
-                >
-                  📊 Export History
-                </button>
               </div>
 
               {!transactions || transactions.length === 0 ? (

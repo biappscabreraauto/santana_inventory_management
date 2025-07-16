@@ -8,6 +8,7 @@ import React, { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
+import { exportPartsToCSV } from '../../utils/csvExport'
 
 // Import SharePoint hooks - LIVE MODE ONLY
 import { useParts, useCategories } from '../../hooks/useSharePoint'
@@ -210,7 +211,18 @@ const PartsTable = () => {
   }
 
   const handleExportParts = () => {
-    info('Export functionality coming soon!')
+    try {
+      if (filteredParts.length === 0) {
+        warning('No parts to export')
+        return
+      }
+      
+      exportPartsToCSV(filteredParts, 'parts-export')
+      success(`Exported ${filteredParts.length} parts to CSV`)
+    } catch (err) {
+      console.error('Export error:', err)
+      error('Failed to export parts')
+    }
   }
 
   const handleRefreshData = () => {
@@ -484,7 +496,7 @@ const PartsTable = () => {
               className="input"
             >
               <option value="">All Levels</option>
-              <option value="in-stock">In Stock (>5)</option>
+              <option value="in-stock">In Stock (&gt;5)</option>
               <option value="low-stock">Low Stock (1-5)</option>
               <option value="out-of-stock">Out of Stock (0)</option>
             </select>
