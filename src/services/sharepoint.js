@@ -349,8 +349,8 @@ class SharePointService {
    * Get single part by Part ID (Title field) - FIXED VERSION
    * This method should replace the existing getPartById in src/services/sharepoint.js
    */
-  async getPartById(accessToken, partId) {
-    const cacheKey = `part_${partId}`;
+  async getPartById(accessToken, internalId) {
+    const cacheKey = `part_${internalId}`;
     const cached = this.getFromCache(cacheKey);
     if (cached) return cached;
 
@@ -359,21 +359,19 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        // FIXED: Use filter to find part by Title field (partId) instead of treating partId as SharePoint item ID
+        // FIXED: Get part by internal SharePoint ID (not Title field)
         const response = await graphClient
-          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
-          .filter(`fields/Title eq '${partId}'`)
+          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${internalId}`)
           .expand('fields')
-          .top(1)
           .get();
 
-        if (response.value && response.value.length > 0) {
-          return transformSharePointItem(response.value[0], 'parts');
+        if (response) {
+          return transformSharePointItem(response, 'parts');
         }
 
         return null;
       },
-      `Get Part ${partId}`
+      `Get Part ${internalId}`
     );
 
     this.setCache(cacheKey, result);

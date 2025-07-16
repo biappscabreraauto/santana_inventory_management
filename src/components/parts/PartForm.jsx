@@ -300,8 +300,8 @@ const PartForm = () => {
       }
     }
 
-    // Inventory validation
-    if (formData.inventoryOnHand < 0) {
+    // Inventory validation - SKIP in edit mode since field is disabled
+    if (!isEditMode && formData.inventoryOnHand < 0) {
       newErrors.inventoryOnHand = 'Inventory cannot be negative'
     }
 
@@ -365,7 +365,14 @@ const PartForm = () => {
         unitPrice: parseFloat(formData.unitPrice) || 0
       }
 
-      console.log('Saving part data:', submissionData)
+      // IMPORTANT: Don't include inventory changes in edit mode
+      if (isEditMode) {
+        // Remove inventory from submission data to prevent accidental changes
+        delete submissionData.inventoryOnHand
+        console.log('Updating part (inventory protected):', submissionData)
+      } else {
+        console.log('Creating new part with initial inventory:', submissionData)
+      }
 
       if (isEditMode) {
         await updatePart(id, submissionData)
@@ -847,41 +854,83 @@ const PartForm = () => {
             </h3>
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Inventory On Hand */}
+              {/* Inventory On Hand - PROTECTED IN EDIT MODE */}
               <div>
                 <label htmlFor="inventoryOnHand" className="block text-sm font-medium text-gray-700 mb-1">
-                  Initial Quantity {!isEditMode && <span className="text-blue-600">(Optional)</span>}
+                  {isEditMode ? 'Current Inventory *' : 'Initial Quantity'} {!isEditMode && <span className="text-blue-600">(Optional)</span>}
                 </label>
-                <input
-                  type="number"
-                  id="inventoryOnHand"
-                  name="inventoryOnHand"
-                  value={formData.inventoryOnHand}
-                  onChange={handleInputChange}
-                  min="0"
-                  step="1"
-                  className={`input ${errors.inventoryOnHand ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                />
-                {errors.inventoryOnHand && (
-                  <p className="mt-1 text-sm text-red-600">{errors.inventoryOnHand}</p>
-                )}
-                {!isEditMode && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    Set to 0 if you'll receive inventory later
-                  </p>
+                <div className="relative">
+                  <input
+                    type="number"
+                    id="inventoryOnHand"
+                    name="inventoryOnHand"
+                    value={formData.inventoryOnHand}
+                    onChange={handleInputChange}
+                    min="0"
+                    step="1"
+                    disabled={isEditMode}
+                    className={`input ${
+                      isEditMode ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
+                    } ${errors.inventoryOnHand ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                  />
+                  {isEditMode && (
+                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                      <span className="text-gray-400 text-sm">🔒</span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Dynamic help text based on mode */}
+                {isEditMode ? (
+                  <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="flex items-start space-x-2">
+                      <span className="text-amber-600 mt-0.5">⚠️</span>
+                      <div>
+                        <p className="text-sm font-medium text-amber-800">
+                          Inventory cannot be changed here
+                        </p>
+                        <p className="text-sm text-amber-700 mt-1">
+                          To modify inventory levels, use the transaction system to maintain proper audit trails.
+                        </p>
+                        <div className="mt-2 flex space-x-2">
+                          <Link
+                            to={`/transactions/new?partId=${formData.partId}`}
+                            className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-amber-800 bg-amber-100 border border-amber-300 rounded hover:bg-amber-200 transition-colors"
+                          >
+                            📦 Log Transaction
+                          </Link>
+                          <Link
+                            to={`/parts/${id}`}
+                            className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-amber-800 bg-amber-100 border border-amber-300 rounded hover:bg-amber-200 transition-colors"
+                          >
+                            📊 View History
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {errors.inventoryOnHand && (
+                      <p className="mt-1 text-sm text-red-600">{errors.inventoryOnHand}</p>
+                    )}
+                    <p className="mt-1 text-xs text-gray-500">
+                      Set initial inventory quantity. This will create an initial stock transaction.
+                    </p>
+                  </>
                 )}
               </div>
 
-              {/* Total Value */}
+              {/* Total Value - Enhanced for edit mode */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Total Inventory Value
+                  {isEditMode ? 'Current Inventory Value' : 'Initial Inventory Value'}
                 </label>
                 <div className="input bg-gray-50 text-gray-700 font-medium">
                   ${calculateValue()}
                 </div>
                 <p className="mt-1 text-xs text-gray-500">
-                  Quantity × Unit Cost
+                  {isEditMode ? 'Current quantity × Unit cost' : 'Initial quantity × Unit cost'}
                 </p>
               </div>
             </div>
