@@ -1,5 +1,4 @@
 import React, { useState, useMemo } from 'react'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { useSharePointData, useTransactions } from '../../hooks/useSharePoint'
@@ -414,9 +413,9 @@ const Dashboard = () => {
 
           {currentData.length > 0 ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Bar Chart */}
+              {/* First Horizontal Bar Chart */}
               <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">
+                <h3 className="text-lg font-medium text-gray-900 mb-6">
                   Inventory {viewMode === 'value' ? 'Value' : 'Quantity'} by {chartType === 'family' ? 'Family' : 'Category'}
                 </h3>
                 {chartType === 'family' && !categoryMap && (
@@ -426,61 +425,69 @@ const Dashboard = () => {
                     </p>
                   </div>
                 )}
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={currentData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      dataKey="name" 
-                      tick={{ fontSize: 12 }}
-                      interval={0}
-                      angle={-45}
-                      textAnchor="end"
-                      height={80}
-                    />
-                    <YAxis 
-                      tick={{ fontSize: 12 }}
-                      tickFormatter={viewMode === 'value' ? (value) => `${value}` : undefined}
-                    />
-                    <Tooltip 
-                      formatter={viewMode === 'value' 
-                        ? (value) => [formatCurrency(value), 'Value']
-                        : (value) => [value, 'Quantity']
-                      }
-                    />
-                    <Bar dataKey={dataKey} fill="#3B82F6" />
-                  </BarChart>
-                </ResponsiveContainer>
+                <div className="space-y-3">
+                  {currentData.slice(0, 8).map((item, index) => {
+                    const maxValue = Math.max(...currentData.map(d => d[dataKey]))
+                    const percentage = maxValue > 0 ? (item[dataKey] / maxValue) * 100 : 0
+                    return (
+                      <div key={item.name} className="flex items-center">
+                        <div className="w-48 text-sm text-gray-700 text-right pr-4 truncate" title={item.name}>
+                          {item.name}
+                        </div>
+                        <div className="flex-1 relative">
+                          <div className="w-full bg-gray-100 rounded-full h-6">
+                            <div 
+                              className="h-6 rounded-full transition-all duration-500 ease-out"
+                              style={{
+                                width: `${percentage}%`,
+                                backgroundColor: CHART_COLORS[index % CHART_COLORS.length]
+                              }}
+                            />
+                          </div>
+                          <div className="absolute right-3 top-0 h-6 flex items-center pl-3 text-sm font-medium text-gray-900">
+                            {viewMode === 'value' ? formatCurrency(item[dataKey]) : item[dataKey]}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
 
-              {/* Pie Chart */}
+              {/* Second Horizontal Bar Chart */}
               <div>
-                <h3 className="text-lg font-medium text-gray-900 mb-4">
+                <h3 className="text-lg font-medium text-gray-900 mb-6">
                   Distribution by {chartType === 'family' ? 'Family' : 'Category'}
                 </h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={currentData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={(entry) => entry.name}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey={dataKey}
-                    >
-                      {currentData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip 
-                      formatter={viewMode === 'value' 
-                        ? (value) => [formatCurrency(value), 'Value']
-                        : (value) => [value, 'Quantity']
-                      }
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
+                <div className="space-y-3">
+                  {currentData.slice(0, 8).map((item, index) => {
+                    const maxValue = Math.max(...currentData.map(d => d[dataKey]))
+                    const percentage = maxValue > 0 ? (item[dataKey] / maxValue) * 100 : 0
+                    const totalValue = currentData.reduce((sum, d) => sum + d[dataKey], 0)
+                    const itemPercentage = totalValue > 0 ? ((item[dataKey] / totalValue) * 100).toFixed(1) : 0
+                    return (
+                      <div key={item.name} className="flex items-center">
+                        <div className="w-48 text-sm text-gray-700 text-right pr-4 truncate" title={item.name}>
+                          {item.name}
+                        </div>
+                        <div className="flex-1 relative">
+                          <div className="w-full bg-gray-100 rounded-full h-6">
+                            <div 
+                              className="h-6 rounded-full transition-all duration-500 ease-out"
+                              style={{
+                                width: `${percentage}%`,
+                                backgroundColor: CHART_COLORS[(index + 4) % CHART_COLORS.length]
+                              }}
+                            />
+                          </div>
+                          <div className="absolute right-3 top-0 h-6 flex items-center pl-3 text-sm font-medium text-gray-900">
+                            {itemPercentage}%
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
             </div>
           ) : (
