@@ -194,15 +194,22 @@ const transformSharePointItem = (sharePointItem, listType) => {
         return transactionData;
 
       case 'parts':
-        return {
+        const partsData = {
           Title: data.partId,
           Description: data.description,
           Category: data.category || 'Uncategorized',
-          InventoryOnHand: data.inventoryOnHand || 0,
           UnitCost: data.unitCost || 0,
           UnitPrice: data.unitPrice || 0,
           Status: data.status || 'Active'
         };
+
+        // ✅ CRITICAL FIX: Only include InventoryOnHand if explicitly provided
+        // This prevents inventory reset when updating parts in edit mode
+        if (data.inventoryOnHand !== undefined && data.inventoryOnHand !== null) {
+          partsData.InventoryOnHand = data.inventoryOnHand;
+        }
+
+        return partsData;
 
       case 'invoices':
         return {
@@ -347,10 +354,10 @@ class SharePointService {
 
   /**
    * Get single part by Part ID (Title field) - FIXED VERSION
-   * This method should replace the existing getPartById in src/services/sharepoint.js
+   * This method finds parts using the Part ID (Title field), not SharePoint item ID
    */
-  async getPartById(accessToken, internalId) {
-    const cacheKey = `part_${internalId}`;
+  async getPartById(accessToken, partId) {
+    const cacheKey = `part_${partId}`;
     const cached = this.getFromCache(cacheKey);
     if (cached) return cached;
 
@@ -359,19 +366,21 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        // FIXED: Get part by internal SharePoint ID (not Title field)
+        // ✅ FIXED: Use filter to find part by Part ID (Title field)
         const response = await graphClient
-          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${internalId}`)
+          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
+          .filter(`fields/Title eq '${partId}'`)
           .expand('fields')
+          .top(1)
           .get();
 
-        if (response) {
-          return transformSharePointItem(response, 'parts');
+        if (response.value && response.value.length > 0) {
+          return transformSharePointItem(response.value[0], 'parts');
         }
 
         return null;
       },
-      `Get Part ${internalId}`
+      `Get Part by ID ${partId}`
     );
 
     this.setCache(cacheKey, result);
