@@ -20,7 +20,7 @@ export const SHAREPOINT_CONFIG = {
     buyers: import.meta.env.VITE_BUYERS_LIST_NAME || 'simt_Buyers',
     invoices: import.meta.env.VITE_INVOICES_LIST_NAME || 'simt_Invoices',
     transactions: import.meta.env.VITE_TRANSACTIONS_LIST_NAME || 'simt_Transactions',
-    authorizedUsers: 'simt_AuthorizedUsers'  // Make sure this line is here!
+    authorizedUsers: import.meta.env.VITE_AUTHORIZED_USERS_LIST_NAME || 'simt_AuthorizedUsers'
   },
 
   // API configuration
