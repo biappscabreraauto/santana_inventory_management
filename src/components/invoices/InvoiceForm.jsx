@@ -105,12 +105,10 @@ const InvoiceForm = () => {
       return sum + (isNaN(itemTotal) ? 0 : itemTotal);
     }, 0);
     
-    const tax = 0;
-    const total = subtotal + tax;
+    const total = subtotal; // No tax calculation
     
     return {
       subtotal: isNaN(subtotal) ? 0 : subtotal,
-      tax: isNaN(tax) ? 0 : tax,
       total: isNaN(total) ? 0 : total
     };
   }, [lineItems]);
@@ -538,19 +536,34 @@ const InvoiceForm = () => {
                       />
                     </div>
 
-                    {/* Unit Price */}
+                    {/* Unit Price - FIXED: Added currency formatting */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Unit Price
                       </label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={item.unitPrice}
-                        onChange={(e) => updateLineItem(index, 'unitPrice', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                        <input
+                          type="text"
+                          value={item.unitPrice}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            // Allow only numbers and decimal point
+                            if (/^\d*\.?\d*$/.test(value) || value === '') {
+                              updateLineItem(index, 'unitPrice', value);
+                            }
+                          }}
+                          onBlur={(e) => {
+                            // Format the value when user leaves the field
+                            const numValue = parseFloat(e.target.value) || 0;
+                            updateLineItem(index, 'unitPrice', numValue.toFixed(2));
+                          }}
+                          placeholder="0.00"
+                          className="w-full pl-8 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          pattern="[0-9]*\.?[0-9]*"
+                          inputMode="decimal"
+                        />
+                      </div>
                     </div>
 
                     {/* Total */}
@@ -579,27 +592,44 @@ const InvoiceForm = () => {
             </div>
           )}
 
-          {/* Totals */}
-          {lineItems.length > 0 && (
-            <div className="mt-6 border-t border-gray-200 pt-6">
-              <div className="flex justify-end">
-                <div className="w-64 space-y-2">
-                  <div className="flex justify-between">
-                    <span>Subtotal:</span>
-                    <span>${totals.subtotal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Tax:</span>
-                    <span>${totals.tax.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold text-lg border-t border-gray-200 pt-2">
-                    <span>Total:</span>
-                    <span>${totals.total.toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
+{/* Totals with Tax Notice */}
+{lineItems.length > 0 && (
+  <div className="mt-6 border-t border-gray-200 pt-6">
+    <div className="flex justify-end">
+      <div className="w-80 space-y-3">
+        {/* Totals */}
+        <div className="space-y-2">
+          <div className="flex justify-between">
+            <span>Subtotal:</span>
+            <span>${totals.subtotal.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between font-bold text-lg border-t border-gray-200 pt-2">
+            <span>Total:</span>
+            <span>${totals.total.toFixed(2)}</span>
+          </div>
+        </div>
+        
+        {/* Tax Notice - Professional Version */}
+        <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mt-4">
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              <svg className="h-4 w-4 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+              </svg>
             </div>
-          )}
+            <div className="ml-2">
+              <p className="text-sm text-blue-700">
+                <strong>Tax Disclaimer:</strong> The amounts shown are pre-tax totals. 
+                Applicable sales tax, use tax, and other governmental fees will be calculated 
+                and added to the final invoice amount as required by applicable law.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+)}
         </div>
 
         {/* Form Actions */}

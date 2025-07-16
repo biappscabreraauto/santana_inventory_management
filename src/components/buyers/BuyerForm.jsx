@@ -8,16 +8,23 @@ import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
-import { useBuyers } from '../../hooks/useSharePoint'
+import { useBuyers, useBuyer } from '../../hooks/useSharePoint'
 import { User, Mail, Phone, Save, X, AlertCircle, Check } from 'lucide-react'
 
 const BuyerForm = () => {
   const { id } = useParams()
   const navigate = useNavigate()
   const { success, error } = useToast()
-  const { buyers, loading, createBuyer, updateBuyer, getBuyerById } = useBuyers()
-
+  
   const isEditMode = !!id
+  
+  // Use different hooks based on mode
+  const { buyers, createBuyer } = useBuyers()
+  const { 
+    buyer: existingBuyer, 
+    loading: buyerLoading, 
+    updateBuyer: updateExistingBuyer 
+  } = useBuyer(isEditMode ? id : null)
 
   // =================================================================
   // LOCAL STATE
@@ -30,38 +37,27 @@ const BuyerForm = () => {
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
   const [saving, setSaving] = useState(false)
-  const [isLoading, setIsLoading] = useState(false)
 
   // =================================================================
   // LOAD DATA FOR EDIT MODE
   // =================================================================
   useEffect(() => {
-    if (isEditMode && id) {
-      setIsLoading(true)
-      const loadBuyerData = async () => {
-        try {
-          const buyer = await getBuyerById(id)
-          if (buyer) {
-            setFormData({
-              buyerName: buyer.buyerName || '',
-              contactEmail: buyer.contactEmail || '',
-              phone: buyer.phone || ''
-            })
-          } else {
-            error('Buyer not found')
-            navigate('/buyers')
-          }
-        } catch (err) {
-          console.error('Error loading buyer:', err)
-          error('Failed to load buyer data')
-          navigate('/buyers')
-        } finally {
-          setIsLoading(false)
-        }
-      }
-      loadBuyerData()
+    if (isEditMode && existingBuyer) {
+      setFormData({
+        buyerName: existingBuyer.buyerName || '',
+        contactEmail: existingBuyer.contactEmail || '',
+        phone: existingBuyer.phone || ''
+      })
     }
-  }, [id, isEditMode, getBuyerById, error, navigate])
+  }, [isEditMode, existingBuyer])
+
+  // Handle case where buyer is not found
+  useEffect(() => {
+    if (isEditMode && !buyerLoading && !existingBuyer) {
+      error('Buyer not found')
+      navigate('/buyers')
+    }
+  }, [isEditMode, buyerLoading, existingBuyer, error, navigate])
 
   // =================================================================
   // VALIDATION
@@ -194,7 +190,7 @@ const BuyerForm = () => {
       }
 
       if (isEditMode) {
-        await updateBuyer(id, buyerData)
+        await updateExistingBuyer(buyerData)
         success('Buyer updated successfully!')
       } else {
         await createBuyer(buyerData)
@@ -237,7 +233,7 @@ const BuyerForm = () => {
   // =================================================================
   // LOADING STATE
   // =================================================================
-  if (isLoading) {
+  if (buyerLoading) {
     return (
       <div className="min-h-[400px] flex items-center justify-center">
         <div className="text-center">
@@ -311,7 +307,7 @@ const BuyerForm = () => {
             {/* Contact Email */}
             <div>
               <label htmlFor="contactEmail" className="block text-sm font-medium text-gray-700 mb-1">
-                Email Address
+                Contact Email
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -323,7 +319,7 @@ const BuyerForm = () => {
                   value={formData.contactEmail}
                   onChange={(e) => handleInputChange('contactEmail', e.target.value)}
                   onBlur={() => handleBlur('contactEmail')}
-                  placeholder="buyer@example.com"
+                  placeholder="Enter email address"
                   className={`input pl-10 ${errors.contactEmail ? 
                     'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
                 />
@@ -336,7 +332,7 @@ const BuyerForm = () => {
               )}
             </div>
 
-            {/* Phone Number */}
+            {/* Phone */}
             <div>
               <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
                 Phone Number
@@ -351,7 +347,7 @@ const BuyerForm = () => {
                   value={formData.phone}
                   onChange={(e) => handlePhoneChange(e.target.value)}
                   onBlur={() => handleBlur('phone')}
-                  placeholder="(555) 123-4567"
+                  placeholder="Enter phone number"
                   className={`input pl-10 ${errors.phone ? 
                     'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
                 />
@@ -436,17 +432,6 @@ const BuyerForm = () => {
           </button>
         </div>
       </form>
-
-      {/* Help Text */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <h3 className="text-sm font-medium text-gray-900 mb-2">Tips</h3>
-        <ul className="text-sm text-gray-600 space-y-1">
-          <li>• Buyer names must be unique in the system</li>
-          <li>• Phone numbers are automatically formatted for consistency</li>
-          <li>• Email addresses are validated for proper format</li>
-          <li>• You can update contact information anytime from the buyers table</li>
-        </ul>
-      </div>
     </div>
   )
 }

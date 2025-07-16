@@ -142,9 +142,34 @@ const transformSharePointItem = (sharePointItem, listType) => {
 /**
  * Transform component data to SharePoint format
  * HYBRID SOLUTION: Category field handled as simple text
+ * FIXED: Removed baseItem references that were causing errors
  */
   const transformToSharePoint = (data, listType) => {
     switch (listType) {
+      case 'parts':
+        return {
+          Title: data.partId,
+          Description: data.description || '',
+          Category: data.category || 'Uncategorized', // Direct text value (hybrid solution)
+          InventoryOnHand: data.inventoryOnHand || 0,
+          UnitCost: data.unitCost || 0,
+          UnitPrice: data.unitPrice || 0,
+          Status: data.status || 'Active'
+        };
+
+      case 'categories':
+        return {
+          Title: data.category,
+          Family: data.family || ''
+        };
+
+      case 'buyers':
+        return {
+          Title: data.buyerName,
+          ContactEmail: data.contactEmail || '',
+          Phone: data.phone || ''
+        };
+
       case 'transactions':
         // Start with base transaction data
         const transactionData = {
@@ -161,27 +186,15 @@ const transformSharePointItem = (sharePointItem, listType) => {
           if (data.unitCost !== undefined && data.unitCost !== null) {
             transactionData.UnitCost = data.unitCost;
           }
-          
-          // FIX: Include invoice and buyer references for VOID ADJUSTMENTS
-          if (data.movementType === 'Void adjustment') {
-            if (data.invoice) {
-              transactionData.Invoice = data.invoice;
-            }
-            if (data.buyer) {
-              transactionData.Buyer = data.buyer;
-            }
-          }
-          
         } else if (data.movementType === 'Out (Sold)') {
-          // For OUTBOUND: Set UnitPrice (selling price)
+          // For OUTBOUND: Set both UnitPrice (required) and UnitCost (optional)
           if (data.unitPrice !== undefined && data.unitPrice !== null) {
             transactionData.UnitPrice = data.unitPrice;
           }
-          // Optionally include UnitCost for reference
           if (data.unitCost !== undefined && data.unitCost !== null) {
             transactionData.UnitCost = data.unitCost;
           }
-          // Include invoice and buyer references for sales
+          // For outbound transactions, add invoice and buyer info
           if (data.invoice) {
             transactionData.Invoice = data.invoice;
           }
@@ -190,41 +203,23 @@ const transformSharePointItem = (sharePointItem, listType) => {
           }
         }
 
-        console.log('Final SharePoint transaction data:', transactionData);
         return transactionData;
-
-      case 'parts':
-        const partsData = {
-          Title: data.partId,
-          Description: data.description,
-          Category: data.category || 'Uncategorized',
-          UnitCost: data.unitCost || 0,
-          UnitPrice: data.unitPrice || 0,
-          Status: data.status || 'Active'
-        };
-
-        // ✅ CRITICAL FIX: Only include InventoryOnHand if explicitly provided
-        // This prevents inventory reset when updating parts in edit mode
-        if (data.inventoryOnHand !== undefined && data.inventoryOnHand !== null) {
-          partsData.InventoryOnHand = data.inventoryOnHand;
-        }
-
-        return partsData;
 
       case 'invoices':
         return {
           Title: data.invoiceNumber,
-          Buyer: data.buyer,
+          Buyer: data.buyer || 'Unknown Buyer', // Now simple text field
           InvoiceDate: data.invoiceDate,
           TotalAmount: data.totalAmount || 0,
           Status: data.status || 'Draft',
-          Notes: data.notes || '',
+          Notes: data.notes || ''
         };
 
       default:
-        return { ...baseItem, ...fields };
+        console.warn(`Unknown list type for transformation: ${listType}`);
+        return data;
     }
-  }; 
+  };
 
 // =================================================================
 // SHAREPOINT SERVICE CLASS
