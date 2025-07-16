@@ -888,16 +888,15 @@ export const useInvoice = (invoiceId) => {
       setLoading(true)
       setError(null)
       
-      const [invoiceResult, lineItemsResult] = await Promise.all([
-        executeOperation(
-          (token) => sharePointService.getInvoiceById(token, invoiceId),
-          'Failed to load invoice details'
-        ),
-        executeOperation(
-          (token) => sharePointService.getInvoiceLineItems(token, invoiceId),
-          'Failed to load invoice line items'
-        )
-      ])
+      const invoiceResult = await executeOperation(
+        (token) => sharePointService.getInvoiceById(token, invoiceId),
+        'Failed to load invoice details'
+      )
+
+      const lineItemsResult = await executeOperation(
+        (token) => sharePointService.getInvoiceLineItems(token, invoiceResult.invoiceNumber),
+        'Failed to load invoice line items'
+      )
       
       if (isMountedRef.current) {
         setInvoice(invoiceResult)

@@ -196,14 +196,13 @@ export const TRANSACTIONS_SCHEMA = {
   
   fieldTypes: {
     // HYBRID SOLUTION: Changed from 'lookup' to 'text' 
-    partId: 'text', // Was 'lookup', now 'text' due to Graph API bug
+    partId: 'text',
     movementType: 'choice',
     quantity: 'number',
     unitCost: 'currency',
     unitPrice: 'currency',
-    // May need to convert these to text in future if Graph API issues persist
-    invoice: 'lookup',
-    buyer: 'lookup',
+    invoice: 'text',
+    buyer: 'text',
     supplier: 'text',
     notes: 'multiline'
   },

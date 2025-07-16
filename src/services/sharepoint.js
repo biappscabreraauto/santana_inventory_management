@@ -186,15 +186,28 @@ const transformSharePointItem = (sharePointItem, listType) => {
           if (data.unitCost !== undefined && data.unitCost !== null) {
             transactionData.UnitCost = data.unitCost;
           }
+                  
         } else if (data.movementType === 'Out (Sold)') {
-          // For OUTBOUND: Set both UnitPrice (required) and UnitCost (optional)
+          // For OUTBOUND: Set UnitPrice (selling price)
           if (data.unitPrice !== undefined && data.unitPrice !== null) {
             transactionData.UnitPrice = data.unitPrice;
           }
+          // Optionally include UnitCost for reference
           if (data.unitCost !== undefined && data.unitCost !== null) {
             transactionData.UnitCost = data.unitCost;
           }
-          // For outbound transactions, add invoice and buyer info
+          // Include invoice and buyer references for sales
+          if (data.invoice) {
+            transactionData.Invoice = data.invoice;
+          }
+          if (data.buyer) {
+            transactionData.Buyer = data.buyer;
+          }
+        }
+
+        // FIX: Include invoice and buyer references for VOID ADJUSTMENTS
+        // MOVED OUTSIDE the movement type conditions
+        if (data.movementType === 'Void adjustment') {
           if (data.invoice) {
             transactionData.Invoice = data.invoice;
           }
@@ -1093,6 +1106,11 @@ class SharePointService {
 
         // 4. Update invoice status to "Void"
         const sharePointData = transformToSharePoint({
+          invoiceNumber: invoice.invoiceNumber,
+          buyer: invoice.buyer,
+          invoiceDate: invoice.invoiceDate,
+          totalAmount: invoice.totalAmount,
+          notes: invoice.notes,
           status: 'Void'
         }, 'invoices');
 
