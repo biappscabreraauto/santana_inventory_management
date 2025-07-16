@@ -51,19 +51,6 @@ export const SHAREPOINT_CONFIG = {
   }
 }
 
-console.log('🔥 CONFIG FILE LOADED - lists object:', SHAREPOINT_CONFIG.lists);
-console.log('🔥 CONFIG FILE - authorizedUsers value:', SHAREPOINT_CONFIG.lists.authorizedUsers);
-
-// =================================================================
-// ALWAYS RUNNING DEBUG (ADD THIS RIGHT AFTER SHAREPOINT_CONFIG)
-// =================================================================
-console.log('🔥 SHAREPOINT CONFIG FILE IS LOADING');
-console.log('🚨 SHAREPOINT CONFIG DEBUG (ALWAYS RUNS):');
-console.log('  All lists:', SHAREPOINT_CONFIG.lists);
-console.log('  authorizedUsers value:', SHAREPOINT_CONFIG.lists.authorizedUsers);
-console.log('  Environment var VITE_AUTHORIZED_USERS_LIST_NAME:', import.meta.env.VITE_AUTHORIZED_USERS_LIST_NAME);
-console.log('  Environment var VITE_DEBUG_MODE:', import.meta.env.VITE_DEBUG_MODE);
-
 // =================================================================
 // AUTHORIZED USERS LIST SCHEMA (ADD THIS AFTER DEBUG SECTION)
 // =================================================================

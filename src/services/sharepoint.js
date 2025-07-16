@@ -19,6 +19,7 @@ const SHAREPOINT_CONFIG = {
     buyers: import.meta.env.VITE_BUYERS_LIST_NAME,
     invoices: import.meta.env.VITE_INVOICES_LIST_NAME,
     transactions: import.meta.env.VITE_TRANSACTIONS_LIST_NAME,
+    authorizedUsers: import.meta.env.VITE_AUTHORIZED_USERS_LIST_NAME,
   },
 };
 
@@ -66,9 +67,12 @@ const createGraphClient = (accessToken) => {
 /**
  * Transform SharePoint list item to clean object
  * HYBRID SOLUTION: Category field handled as simple text
+ * ENHANCED: Added comprehensive debugging for authorized users
  */
 const transformSharePointItem = (sharePointItem, listType) => {
-  if (!sharePointItem) return null;
+  if (!sharePointItem) {
+    return null;
+  }
 
   const baseItem = {
     id: sharePointItem.id,
@@ -79,7 +83,7 @@ const transformSharePointItem = (sharePointItem, listType) => {
   };
 
   const fields = sharePointItem.fields || sharePointItem;
-
+  
   switch (listType) {
     case 'parts':
       return {
@@ -112,7 +116,7 @@ const transformSharePointItem = (sharePointItem, listType) => {
     case 'transactions':
       return {
         ...baseItem,
-        partId: fields.Part || '', // Simple text field
+        partId: fields.Part || '', // Simple text field (hybrid solution)
         movementType: fields.MovementType,
         quantity: fields.Quantity || 0,
         unitCost: fields.UnitCost || 0,
@@ -135,15 +139,40 @@ const transformSharePointItem = (sharePointItem, listType) => {
       };
 
     case 'authorizedUsers':
-      return {
+      
+      // Enhanced IsActive handling for different SharePoint field formats
+      let isActiveValue;
+      if (fields.IsActive === true || fields.IsActive === 'true' || fields.IsActive === 'Yes' || fields.IsActive === 1) {
+        isActiveValue = true;
+
+      } else if (fields.IsActive === false || fields.IsActive === 'false' || fields.IsActive === 'No' || fields.IsActive === 0) {
+        isActiveValue = false;
+
+      } else if (fields.IsActive === null || fields.IsActive === undefined) {
+        isActiveValue = true; // Default to active if field is missing
+
+      } else {
+
+        isActiveValue = true;
+      }
+      
+      // Enhanced field extraction with fallbacks
+      const userEmail = fields.Title || fields.UserEmail || '';
+      const displayName = fields.DisplayName || fields.Display_x0020_Name || '';
+      const role = fields.Role || 'User';
+      
+      const result = {
         ...baseItem,
-        userEmail: fields.Title,
-        displayName: fields.DisplayName || '',
-        role: fields.Role || 'User',
-        isActive: fields.IsActive !== false
+        userEmail: userEmail,
+        displayName: displayName,
+        role: role,
+        isActive: isActiveValue
       };
+      
+      return result;
 
     default:
+      console.warn(`Unknown list type for transformation: ${listType}`);
       return { ...baseItem, ...fields };
   }
 };
@@ -1735,9 +1764,6 @@ class SharePointService {
    * Get all authorized users from SharePoint
    */
   async getAuthorizedUsers(accessToken, options = {}) {
-    console.log('🔥 getAuthorizedUsers called, using list name:', SHAREPOINT_CONFIG.lists.authorizedUsers);
-    console.log('🔥 Full SHAREPOINT_CONFIG.lists:', SHAREPOINT_CONFIG.lists);
-    
     const cacheKey = `authorized_users_${JSON.stringify(options)}`;
     const cached = this.getFromCache(cacheKey);
     if (cached) return cached;
@@ -1753,11 +1779,6 @@ class SharePointService {
 
         if (options.filter) {
           query = query.filter(options.filter);
-        }
-
-        // Only get active users by default
-        if (!options.includeInactive) {
-          query = query.filter("fields/IsActive eq true");
         }
 
         query = query.orderby('fields/DisplayName');
@@ -1782,10 +1803,9 @@ class SharePointService {
     try {
       const authorizedUsers = await this.getAuthorizedUsers(accessToken);
       
-      const user = authorizedUsers.find(u => 
-        u.userEmail.toLowerCase() === userEmail.toLowerCase() && 
-        u.isActive === true
-      );
+      const user = authorizedUsers.find(u => {
+        return u.userEmail.toLowerCase() === userEmail.toLowerCase() && u.isActive === true;
+      });
       
       return {
         isAuthorized: !!user,

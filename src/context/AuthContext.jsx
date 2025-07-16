@@ -182,6 +182,8 @@ export const AuthProvider = ({ children }) => {
     try {
       setAuthorizationChecked(false);
       
+      console.log('🔍 Checking authorization for email:', user.email);
+
       // Check if user is in the authorized users list
       const authResult = await sharePointService.isUserAuthorized(accessToken, user.email);
       
