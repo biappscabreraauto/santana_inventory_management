@@ -147,15 +147,29 @@ const transformSharePointItem = (sharePointItem, listType) => {
   const transformToSharePoint = (data, listType) => {
     switch (listType) {
       case 'parts':
-        return {
+        // Build the base parts data WITHOUT inventory
+        const partsData = {
           Title: data.partId,
           Description: data.description || '',
-          Category: data.category || 'Uncategorized', // Direct text value (hybrid solution)
-          InventoryOnHand: data.inventoryOnHand || 0,
+          Category: data.category || 'Uncategorized',
           UnitCost: data.unitCost || 0,
           UnitPrice: data.unitPrice || 0,
           Status: data.status || 'Active'
         };
+
+        // ✅ FIXED: Only include InventoryOnHand for NEW parts with initial stock
+        // Never include it for updates to prevent inventory reset
+        if (data.inventoryOnHand !== undefined && 
+            data.inventoryOnHand !== null && 
+            data.inventoryOnHand > 0 &&
+            data.isNewPart === true) {
+          partsData.InventoryOnHand = data.inventoryOnHand;
+          console.log('Including InventoryOnHand for new part:', data.inventoryOnHand);
+        } else {
+          console.log('Excluding InventoryOnHand to preserve existing inventory');
+        }
+
+        return partsData;
 
       case 'categories':
         return {

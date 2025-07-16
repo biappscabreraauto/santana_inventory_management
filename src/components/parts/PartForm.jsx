@@ -365,55 +365,64 @@ const PartForm = () => {
         unitPrice: parseFloat(formData.unitPrice) || 0
       }
 
-      // IMPORTANT: Don't include inventory changes in edit mode
       if (isEditMode) {
-        // Remove inventory from submission data to prevent accidental changes
-        delete submissionData.inventoryOnHand
-        console.log('Updating part (inventory protected):', submissionData)
-      } else {
-        console.log('Creating new part with initial inventory:', submissionData)
-      }
-
-      if (isEditMode) {
-        await updatePart(id, submissionData)
+        // For edit mode: NEVER include inventoryOnHand
+        const editData = {
+          partId: submissionData.partId,
+          description: submissionData.description,
+          category: submissionData.category,
+          unitCost: submissionData.unitCost,
+          unitPrice: submissionData.unitPrice,
+          status: submissionData.status
+          // Deliberately excluding inventoryOnHand
+        };
+        
+        console.log('Updating part (inventory protected):', editData)
+        
+        await updatePart(id, editData)
         success('Part updated successfully!')
       } else {
-        // *** FIX: For new parts with initial inventory, create part with 0 inventory first ***
-        const willCreateTransaction = formData.inventoryOnHand > 0
+        // For new parts: Create with ZERO inventory first, then let transaction set it
+        const newPartData = {
+          ...submissionData,
+          inventoryOnHand: 0,  // ✅ ALWAYS start with zero
+          isNewPart: true      // Flag for the service layer
+        };
         
-        if (willCreateTransaction) {
-          // Create part with zero inventory - let the transaction set the correct amount
-          const partDataWithZeroInventory = {
-            ...submissionData,
-            inventoryOnHand: 0  // Start with zero, transaction will set correct amount
+        console.log('Creating new part with zero inventory:', newPartData)
+        
+        // Create the part first
+        const newPart = await createPart(newPartData)
+        
+        // Then create initial stock transaction if needed
+        if (submissionData.inventoryOnHand > 0) {
+          try {
+            const initialTransaction = {
+              partId: submissionData.partId,
+              movementType: 'In (Received)',
+              quantity: submissionData.inventoryOnHand,
+              unitCost: submissionData.unitCost,
+              supplier: transactionData.supplier || 'Initial Stock',
+              notes: transactionData.notes || 'Initial inventory setup',
+              receiptDate: transactionData.receiptDate
+            }
+            
+            console.log('Creating initial stock transaction:', initialTransaction)
+            await createTransaction(initialTransaction)
+            success(`Part created successfully with ${submissionData.inventoryOnHand} units in stock!`)
+          } catch (transactionError) {
+            console.error('Failed to create initial stock transaction:', transactionError)
+            success('Part created successfully, but initial stock transaction failed. Please add inventory manually.')
           }
-          
-          console.log('Creating part with zero inventory first:', partDataWithZeroInventory)
-          await createPart(partDataWithZeroInventory)
-          
-          console.log('Creating initial stock transaction for hybrid solution')
-          await createTransaction({
-            partId: submissionData.partId,
-            movementType: 'In (Received)',
-            quantity: formData.inventoryOnHand, // Use original inventory amount
-            unitCost: submissionData.unitCost,
-            supplier: transactionData.supplier || 'Initial Stock',
-            notes: transactionData.notes || 'Initial inventory setup'
-          })
-          
-          success(`Part created successfully! Initial stock transaction recorded for ${formData.inventoryOnHand} units.`)
         } else {
-          // No initial inventory - create part normally
-          await createPart(submissionData)
           success('Part created successfully!')
         }
+        
+        navigate('/parts')
       }
-
-      navigate('/parts')
-      
     } catch (err) {
-      console.error('Error saving part:', err)
-      error('Failed to save part. Please try again.')
+      console.error('Form submission error:', err)
+      error(err.message || 'An error occurred while saving the part')
     } finally {
       setSaving(false)
     }
