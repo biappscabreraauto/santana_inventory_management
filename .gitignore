@@ -125,6 +125,7 @@ storybook-static
 # Temporary Folders
 tmp/
 temp/
+old/
 
 # Azure Static Web Apps
 .azure/
