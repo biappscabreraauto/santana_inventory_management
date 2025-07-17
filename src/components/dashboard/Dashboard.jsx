@@ -1,16 +1,26 @@
 import React, { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import { useSharePointData, useTransactions } from '../../hooks/useSharePoint'
+import { useRoleAccess } from '../../hooks/useRoleAccess'
+import RoleProtected from '../auth/RoleProtected'
 import LoadingSpinner from '../shared/LoadingSpinner'
 
 const CHART_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#84CC16', '#F97316']
 
 const Dashboard = () => {
-  const { user } = useAuth()
+  const { user, userRole } = useAuth()
   const { success } = useToast()
+  const navigate = useNavigate()
+  const { canAccess, canExport, isReadOnly, isUser, isAdmin } = useRoleAccess('ReadOnly')
   const [viewMode, setViewMode] = useState('value') // 'value' or 'quantity'
   const [chartType, setChartType] = useState('family') // 'family' or 'category'
+
+  // Early return if no access
+  if (!canAccess) {
+    return <RoleProtected requiredRole="ReadOnly" />
+  }
 
   // Load SharePoint data - Now includes categories for family mapping
   const { 
@@ -217,10 +227,28 @@ const Dashboard = () => {
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
+        {/* Header with Role Badge */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="text-gray-600 mt-2">Overview of your inventory management system</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+              <p className="text-gray-600 mt-2">Overview of your inventory management system</p>
+            </div>
+            <div className="text-right">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                {userRole} Access
+              </span>
+              {isAdmin && (
+                <div className="mt-1 text-xs text-gray-500">Full System Access</div>
+              )}
+              {isUser && (
+                <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
+              )}
+              {isReadOnly && (
+                <div className="mt-1 text-xs text-gray-500">View Only Access</div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -326,12 +354,14 @@ const Dashboard = () => {
                       <tr key={index} className="hover:bg-gray-50">
                         <td className="py-3 text-sm text-gray-900">{formatDate(transaction.date)}</td>
                         <td className="py-3">
-                          <button 
-                            onClick={() => alert(`View details for ${transaction.partId}`)}
-                            className="text-blue-600 hover:text-blue-800 font-medium text-sm"
-                          >
-                            {transaction.partId}
-                          </button>
+                          <RoleProtected requiredRole="ReadOnly" hideIfUnauthorized>
+                            <button 
+                              onClick={() => navigate(`/parts/${transaction.partId}`)}
+                              className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                            >
+                              {transaction.partId}
+                            </button>
+                          </RoleProtected>
                           <p className="text-xs text-gray-500 truncate max-w-40" title={transaction.partDescription}>
                             {transaction.partDescription}
                           </p>
@@ -362,52 +392,56 @@ const Dashboard = () => {
             <h2 className="text-xl font-semibold text-gray-900">Inventory Analytics</h2>
             <div className="flex items-center space-x-4">
               {/* Chart Type Toggle */}
-              <div className="flex rounded-lg bg-gray-100 p-1">
-                <button
-                  onClick={() => setChartType('family')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    chartType === 'family' 
-                      ? 'bg-white text-gray-900 shadow-sm' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  By Family
-                </button>
-                <button
-                  onClick={() => setChartType('category')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    chartType === 'category' 
-                      ? 'bg-white text-gray-900 shadow-sm' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  By Category
-                </button>
-              </div>
+              <RoleProtected requiredRole="ReadOnly" hideIfUnauthorized>
+                <div className="flex rounded-lg bg-gray-100 p-1">
+                  <button
+                    onClick={() => setChartType('family')}
+                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                      chartType === 'family' 
+                        ? 'bg-white text-gray-900 shadow-sm' 
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    By Family
+                  </button>
+                  <button
+                    onClick={() => setChartType('category')}
+                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                      chartType === 'category' 
+                        ? 'bg-white text-gray-900 shadow-sm' 
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    By Category
+                  </button>
+                </div>
+              </RoleProtected>
 
               {/* View Mode Toggle */}
-              <div className="flex rounded-lg bg-gray-100 p-1">
-                <button
-                  onClick={() => setViewMode('value')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    viewMode === 'value' 
-                      ? 'bg-white text-gray-900 shadow-sm' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Value
-                </button>
-                <button
-                  onClick={() => setViewMode('quantity')}
-                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                    viewMode === 'quantity' 
-                      ? 'bg-white text-gray-900 shadow-sm' 
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  Quantity
-                </button>
-              </div>
+              <RoleProtected requiredRole="ReadOnly" hideIfUnauthorized>
+                <div className="flex rounded-lg bg-gray-100 p-1">
+                  <button
+                    onClick={() => setViewMode('value')}
+                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                      viewMode === 'value' 
+                        ? 'bg-white text-gray-900 shadow-sm' 
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Value
+                  </button>
+                  <button
+                    onClick={() => setViewMode('quantity')}
+                    className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                      viewMode === 'quantity' 
+                        ? 'bg-white text-gray-900 shadow-sm' 
+                        : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    Quantity
+                  </button>
+                </div>
+              </RoleProtected>
             </div>
           </div>
 
