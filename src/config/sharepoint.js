@@ -306,7 +306,7 @@ export const INVOICES_SCHEMA = {
   
   choices: {
     // UPDATED: Removed 'Draft' status to remove flexibility
-    status: ['Finalized', 'Paid', 'Void']
+    status: ['Finalized', 'Void']
   },
   
   requiredFields: ['invoiceNumber', 'buyer', 'invoiceDate'],

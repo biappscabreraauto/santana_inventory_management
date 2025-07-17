@@ -245,7 +245,6 @@ const InvoiceDetails = () => {
             {/* Status Badge */}
             <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${
               invoice.status === 'Finalized' ? 'bg-green-100 text-green-800' :
-              invoice.status === 'Paid' ? 'bg-blue-100 text-blue-800' :
               invoice.status === 'Void' ? 'bg-red-100 text-red-800' :
               'bg-gray-100 text-gray-800'
             }`}>

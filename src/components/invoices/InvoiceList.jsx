@@ -153,7 +153,6 @@ const InvoiceList = () => {
     const statusConfig = {
       // REMOVED: 'Draft' status
       'Finalized': { text: 'Finalized', color: 'bg-blue-100 text-blue-800' },
-      'Paid': { text: 'Paid', color: 'bg-green-100 text-green-800' },
       'Void': { text: 'Void', color: 'bg-red-100 text-red-800' }
     }
     
@@ -184,11 +183,10 @@ const InvoiceList = () => {
   const summaryStats = useMemo(() => {
     const totalInvoices = filteredInvoices.length
     const totalAmount = filteredInvoices.reduce((sum, inv) => sum + inv.totalAmount, 0)
-    const paidCount = filteredInvoices.filter(inv => inv.status === 'Paid').length
     const finalizedCount = filteredInvoices.filter(inv => inv.status === 'Finalized').length
     const voidCount = filteredInvoices.filter(inv => inv.status === 'Void').length
 
-    return { totalInvoices, totalAmount, paidCount, finalizedCount, voidCount }
+    return { totalInvoices, totalAmount, finalizedCount, voidCount }
   }, [filteredInvoices])
 
   // =================================================================
@@ -274,10 +272,6 @@ const InvoiceList = () => {
           <div className="text-2xl font-bold text-blue-600">{summaryStats.finalizedCount}</div>
         </div>
         <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-          <div className="text-sm font-medium text-gray-500 mb-1">Paid</div>
-          <div className="text-2xl font-bold text-green-600">{summaryStats.paidCount}</div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
           <div className="text-sm font-medium text-gray-500 mb-1">Void</div>
           <div className="text-2xl font-bold text-red-600">{summaryStats.voidCount}</div>
         </div>
@@ -312,7 +306,6 @@ const InvoiceList = () => {
             >
               <option value="">All Statuses</option>
               <option value="Finalized">Finalized</option>
-              <option value="Paid">Paid</option>
               <option value="Void">Void</option>
             </select>
           </div>
@@ -469,8 +462,8 @@ const InvoiceList = () => {
                             👁️
                           </Link>
                           {/* REMOVED: Edit links */}
-                          {/* ADD: Void button for Finalized/Paid invoices */}
-                          {(invoice.status === 'Finalized' || invoice.status === 'Paid') && (
+                          {/* ADD: Void button for Finalizedinvoices */}
+                          {(invoice.status === 'Finalized') && (
                             <button
                               onClick={() => {
                                 setVoidInvoiceId(invoice.id)

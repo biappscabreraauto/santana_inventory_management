@@ -1120,8 +1120,8 @@ class SharePointService {
           throw new Error('Invoice is already voided');
         }
 
-        if (invoice.status !== 'Finalized' && invoice.status !== 'Paid') {
-          throw new Error('Only Finalized or Paid invoices can be voided');
+        if (invoice.status !== 'Finalized') {
+          throw new Error('Only Finalized invoices can be voided');
         }
 
         console.log(`🔍 Looking for transactions for invoice number: ${invoice.invoiceNumber}`);
@@ -1608,7 +1608,7 @@ class SharePointService {
       // Calculate invoice stats
       const totalInvoices = invoices.length;
       const totalRevenue = invoices
-        .filter(invoice => invoice.status === 'Paid' || invoice.status === 'Finalized')
+        .filter(invoice => invoice.status === 'Finalized')
         .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0);
 
       return {

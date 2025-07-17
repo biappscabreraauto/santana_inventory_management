@@ -1234,10 +1234,8 @@ export const useSharePointData = () => {
     
     const totalInvoices = invoices.length
     const totalRevenue = invoices
-      .filter(invoice => invoice.status === 'Paid' || invoice.status === 'Finalized')
+      .filter(invoice => invoice.status === 'Finalized')
       .reduce((sum, invoice) => sum + (invoice.totalAmount || 0), 0)
-    const draftInvoices = invoices.filter(invoice => invoice.status === 'Draft').length
-    const paidInvoices = invoices.filter(invoice => invoice.status === 'Paid').length
 
     // HYBRID SOLUTION: Enhanced family-based statistics
     const familyStats = {}
@@ -1272,8 +1270,6 @@ export const useSharePointData = () => {
       buyersCount: buyers.length,
       totalInvoices,
       totalRevenue,
-      draftInvoices,
-      paidInvoices,
       familyStats // HYBRID SOLUTION: Enhanced family statistics
     }
   }, [partsWithFamily, categories, buyers, invoices, totalFamilies])
