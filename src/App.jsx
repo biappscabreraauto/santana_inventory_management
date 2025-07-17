@@ -1,23 +1,22 @@
 import React, { Suspense } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { AuthenticatedTemplate, UnauthenticatedTemplate, useIsAuthenticated } from '@azure/msal-react'
+import { Routes, Route, Navigate, BrowserRouter } from 'react-router-dom'
+import { AuthenticatedTemplate, UnauthenticatedTemplate } from '@azure/msal-react'
 
-// Import contexts (we'll create these next)
-import { AuthProvider } from './context/AuthContext'
+// Import contexts
+import { AuthProvider, useAuth } from './context/AuthContext'
 import { ToastProvider } from './context/ToastContext'
 
-// Import layout components (we'll create these next)
+// Import layout components
 import Layout from './components/shared/Layout'
 import LoadingSpinner from './components/shared/LoadingSpinner'
 
 // Import auth components
 import AuthButton from './components/auth/AuthButton'
-import ProtectedRoute from './components/ProtectedRoute';
+import UnauthorizedPage from './components/auth/UnauthorizedPage'
 
 // ================================================================
 // LAZY LOADED COMPONENTS
 // ================================================================
-// Lazy load main feature components for better performance
 const Dashboard = React.lazy(() => import('./components/dashboard/Dashboard'))
 const PartsTable = React.lazy(() => import('./components/parts/PartsTable'))
 const PartForm = React.lazy(() => import('./components/parts/PartForm'))
@@ -33,11 +32,20 @@ const ExternalLookup = React.lazy(() => import('./components/external/ExternalLo
 const TestPage = React.lazy(() => import('./components/parts/TestPage'))
 
 // ================================================================
-// LOADING FALLBACK COMPONENT
+// LOADING COMPONENTS
 // ================================================================
 const PageLoader = () => (
   <div className="flex items-center justify-center min-h-[400px]">
     <LoadingSpinner size="lg" />
+  </div>
+)
+
+const AppLoader = ({ message = "Loading application..." }) => (
+  <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+    <div className="text-center">
+      <LoadingSpinner size="xl" />
+      <p className="mt-4 text-gray-600 text-lg">{message}</p>
+    </div>
   </div>
 )
 
@@ -90,11 +98,11 @@ const UnauthenticatedView = () => (
 )
 
 // ================================================================
-// AUTHENTICATED ROUTES
+// AUTHORIZED APP ROUTES
 // ================================================================
-const AuthenticatedRoutes = () => (
-  <Layout>
-    <ProtectedRoute>
+const AuthorizedAppRoutes = () => (
+  <BrowserRouter>
+    <Layout>
       <Suspense fallback={<PageLoader />}>
         <Routes>
           {/* Dashboard - Default route */}
@@ -128,27 +136,131 @@ const AuthenticatedRoutes = () => (
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Suspense>
-    </ProtectedRoute>  {/* ← Changed this: was <ProtectedRoute>, should be </ProtectedRoute> */}
-  </Layout>
+    </Layout>
+  </BrowserRouter>
 )
+
+// ================================================================
+// AUTHORIZED APP COMPONENT
+// ================================================================
+const AuthorizedApp = () => {
+  const { 
+    authState, 
+    isAuthorized, 
+    isUnauthorized, 
+    isAuthLoading,
+    authorizationError,
+    retryAuthorization,
+    AUTH_STATES 
+  } = useAuth()
+  
+  // Show loading while checking authorization
+  if (isAuthLoading) {
+    let loadingMessage = "Loading application..."
+    
+    if (authState === AUTH_STATES.LOADING) {
+      loadingMessage = "Verifying access permissions..."
+    }
+    
+    return <AppLoader message={loadingMessage} />
+  }
+
+  // Show unauthorized page if not authorized
+  if (isUnauthorized) {
+    return <UnauthorizedPage />
+  }
+
+  // Show main app if authorized
+  if (isAuthorized) {
+    return <AuthorizedAppRoutes />
+  }
+
+  // Fallback loading state (should rarely be reached)
+  return <AppLoader message="Initializing application..." />
+}
+
+// ================================================================
+// ERROR BOUNDARY FOR AUTHORIZATION ERRORS
+// ================================================================
+class AuthorizationErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error }
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('Authorization Error Boundary caught an error:', error, errorInfo)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+          <div className="max-w-md mx-auto text-center">
+            <div className="bg-white rounded-lg shadow-lg p-8">
+              <div className="text-red-600 text-6xl mb-4">⚠️</div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                Authorization Error
+              </h1>
+              <p className="text-gray-600 mb-6">
+                There was an error checking your permissions. Please try again.
+              </p>
+              <div className="space-y-3">
+                <button
+                  onClick={() => window.location.reload()}
+                  className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Reload Application
+                </button>
+                <button
+                  onClick={() => this.setState({ hasError: false, error: null })}
+                  className="w-full bg-gray-200 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-300 transition-colors"
+                >
+                  Try Again
+                </button>
+              </div>
+              
+              {import.meta.env.VITE_DEBUG_MODE === 'true' && (
+                <details className="mt-6 text-left">
+                  <summary className="cursor-pointer text-sm text-gray-500 hover:text-gray-700">
+                    Error Details (Debug Mode)
+                  </summary>
+                  <pre className="mt-2 text-xs text-red-600 bg-red-50 p-3 rounded overflow-auto max-h-32">
+                    {this.state.error?.toString()}
+                  </pre>
+                </details>
+              )}
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
 
 // ================================================================
 // MAIN APP COMPONENT
 // ================================================================
 function App() {
-  const isAuthenticated = useIsAuthenticated()
-
   return (
     <AuthProvider>
       <ToastProvider>
-        {/* Show different views based on authentication status */}
-        <AuthenticatedTemplate>
-          <AuthenticatedRoutes />
-        </AuthenticatedTemplate>
-        
-        <UnauthenticatedTemplate>
-          <UnauthenticatedView />
-        </UnauthenticatedTemplate>
+        <AuthorizationErrorBoundary>
+          {/* Show different views based on authentication status */}
+          <AuthenticatedTemplate>
+            <AuthorizedApp />
+          </AuthenticatedTemplate>
+          
+          <UnauthenticatedTemplate>
+            <UnauthenticatedView />
+          </UnauthenticatedTemplate>
+        </AuthorizationErrorBoundary>
         
         {/* Development indicator */}
         {import.meta.env.VITE_DEBUG_MODE === 'true' && (

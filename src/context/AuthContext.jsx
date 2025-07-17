@@ -9,6 +9,15 @@ import sharePointService from '../services/sharepoint'
 const AuthContext = createContext(null)
 
 // =================================================================
+// AUTHORIZATION STATES
+// =================================================================
+const AUTH_STATES = {
+  LOADING: 'loading',
+  AUTHORIZED: 'authorized',
+  UNAUTHORIZED: 'unauthorized'
+}
+
+// =================================================================
 // AUTH CONTEXT PROVIDER
 // =================================================================
 export const AuthProvider = ({ children }) => {
@@ -17,14 +26,18 @@ export const AuthProvider = ({ children }) => {
   const account = useAccount(accounts[0] || {})
   const isAuthenticated = useIsAuthenticated()
 
-  // Local state
+  // Authentication state
   const [user, setUser] = useState(null)
   const [accessToken, setAccessToken] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [permissions, setPermissions] = useState([])
+
+  // Authorization state - NEW
+  const [authState, setAuthState] = useState(AUTH_STATES.LOADING)
   const [userRole, setUserRole] = useState(null)
   const [authorizationChecked, setAuthorizationChecked] = useState(false)
+  const [authorizationError, setAuthorizationError] = useState(null)
 
   // =================================================================
   // AUTHENTICATION FUNCTIONS
@@ -37,6 +50,7 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true)
       setError(null)
+      setAuthState(AUTH_STATES.LOADING)
       
       const response = await instance.loginPopup(loginRequest)
       
@@ -47,37 +61,48 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.error('❌ Login failed:', error)
       handleAuthError(error)
+      setAuthState(AUTH_STATES.UNAUTHORIZED)
     } finally {
       setLoading(false)
     }
   }, [instance])
 
   /**
-   * Sign out
+   * Sign out with proper cleanup
    */
   const signOut = useCallback(async () => {
     try {
       setLoading(true)
       
-      // Clear local state
+      // Clear all local state
       setUser(null)
       setAccessToken(null)
       setPermissions([])
+      setUserRole(null)
+      setAuthorizationChecked(false)
+      setAuthorizationError(null)
       setError(null)
+      setAuthState(AUTH_STATES.LOADING)
       
-      // Sign out from MSAL
-      await instance.logoutPopup({
+      // Clear cached data
+      sessionStorage.clear()
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem('msal.cache')
+      }
+      
+      // Use redirect for better security
+      await instance.logoutRedirect({
         postLogoutRedirectUri: window.location.origin,
-        mainWindowRedirectUri: window.location.origin
+        logoutHint: user?.email // Helps with faster logout
       })
     } catch (error) {
       console.error('❌ Logout failed:', error)
-      // Force page reload if logout fails
-      window.location.reload()
+      // Force full page reload as fallback
+      window.location.href = '/'
     } finally {
       setLoading(false)
     }
-  }, [instance])
+  }, [instance, user?.email])
 
   /**
    * Acquire access token silently or via popup
@@ -145,13 +170,6 @@ export const AuthProvider = ({ children }) => {
   }, [isAuthenticated, accessToken, acquireToken])
 
   /**
-   * Check if user has specific permission
-   */
-  const hasPermission = useCallback((permission) => {
-    return permissions.includes(permission)
-  }, [permissions])
-
-  /**
    * Handle authentication errors
    */
   const handleAuthError = useCallback((error) => {
@@ -171,41 +189,106 @@ export const AuthProvider = ({ children }) => {
     console.error('🔐 Auth Error:', errorMessage, error)
   }, [])
 
+  // =================================================================
+  // AUTHORIZATION FUNCTIONS - NEW/ENHANCED
+  // =================================================================
+
   /**
-   * Validate user against SharePoint whitelist
+   * Validate user against SharePoint whitelist with retry logic
    */
-  const validateUserAuthorization = useCallback(async () => {
+  const validateUserAuthorization = useCallback(async (retryCount = 0) => {
     if (!isAuthenticated || !accessToken || !user?.email) {
-      return false;
+      console.warn('⚠️ Cannot validate authorization - missing prerequisites')
+      setAuthState(AUTH_STATES.UNAUTHORIZED)
+      return false
     }
 
     try {
-      setAuthorizationChecked(false);
+      console.log(`🔍 Validating authorization for: ${user.email} (attempt ${retryCount + 1})`)
       
-      console.log('🔍 Checking authorization for email:', user.email);
+      // Set loading state
+      setAuthState(AUTH_STATES.LOADING)
+      setAuthorizationError(null)
+      setAuthorizationChecked(false)
 
-      // Check if user is in the authorized users list
-      const authResult = await sharePointService.isUserAuthorized(accessToken, user.email);
+      // Check SharePoint authorization
+      const authResult = await sharePointService.isUserAuthorized(accessToken, user.email)
       
       if (!authResult.isAuthorized) {
-        setError(`Access denied. You are not authorized to use this application. Please contact your administrator.`);
-        await signOut();
-        return false;
+        const errorMsg = `Access denied. You are not authorized to use this application. Please contact your administrator to request access.`
+        console.warn('❌ User not authorized:', user.email)
+        
+        setAuthorizationError(errorMsg)
+        setAuthState(AUTH_STATES.UNAUTHORIZED)
+        setAuthorizationChecked(true)
+        return false
       }
 
-      // Set user role from whitelist
-      setUserRole(authResult.role);
-      setAuthorizationChecked(true);
+      // User is authorized
+      console.log(`✅ User authorized with role: ${authResult.role}`)
+      setUserRole(authResult.role)
+      setAuthState(AUTH_STATES.AUTHORIZED)
+      setAuthorizationChecked(true)
+      setAuthorizationError(null)
       
-      console.log(`✅ User authorized with role: ${authResult.role}`);
-      return true;
+      return true
       
     } catch (error) {
-      console.error('Authorization check failed:', error);
-      setError('Unable to verify access permissions. Please try again or contact your administrator.');
-      return false;
+      console.error('❌ Authorization check failed:', error)
+      
+      // Retry logic for transient errors
+      if (retryCount < 2 && (
+        error.message?.includes('network') || 
+        error.message?.includes('timeout') ||
+        error.message?.includes('500')
+      )) {
+        console.log(`🔄 Retrying authorization check in ${(retryCount + 1) * 1000}ms...`)
+        await new Promise(resolve => setTimeout(resolve, (retryCount + 1) * 1000))
+        return validateUserAuthorization(retryCount + 1)
+      }
+      
+      // Final failure
+      const errorMsg = retryCount > 0 
+        ? 'Unable to verify access permissions after multiple attempts. Please try again or contact your administrator.'
+        : 'Unable to verify access permissions. Please try again or contact your administrator.'
+      
+      setAuthorizationError(errorMsg)
+      setAuthState(AUTH_STATES.UNAUTHORIZED)
+      setAuthorizationChecked(true)
+      return false
     }
-  }, [isAuthenticated, accessToken, user?.email, signOut]);
+  }, [isAuthenticated, accessToken, user?.email])
+
+  /**
+   * Manual retry for authorization
+   */
+  const retryAuthorization = useCallback(async () => {
+    console.log('🔄 Manual authorization retry requested')
+    await validateUserAuthorization(0)
+  }, [validateUserAuthorization])
+
+  /**
+   * Check if user has specific permission
+   */
+  const hasPermission = useCallback((permission) => {
+    return permissions.includes(permission)
+  }, [permissions])
+
+  /**
+   * Check if user has specific role or higher
+   */
+  const hasRole = useCallback((requiredRole) => {
+    const roleHierarchy = { 
+      'ReadOnly': 1, 
+      'User': 2, 
+      'Admin': 3 
+    }
+    
+    const userRoleLevel = roleHierarchy[userRole] || 0
+    const requiredRoleLevel = roleHierarchy[requiredRole] || 0
+    
+    return userRoleLevel >= requiredRoleLevel
+  }, [userRole])
 
   // =================================================================
   // EFFECTS
@@ -216,6 +299,8 @@ export const AuthProvider = ({ children }) => {
    */
   useEffect(() => {
     if (isAuthenticated && account) {
+      console.log('👤 Setting user data for:', account.name)
+      
       setUser({
         id: account.localAccountId,
         name: account.name,
@@ -231,9 +316,14 @@ export const AuthProvider = ({ children }) => {
       // Acquire initial token
       acquireToken()
     } else {
+      console.log('👤 Clearing user data - not authenticated')
       setUser(null)
       setAccessToken(null)
       setPermissions([])
+      setUserRole(null)
+      setAuthorizationChecked(false)
+      setAuthorizationError(null)
+      setAuthState(AUTH_STATES.LOADING)
     }
   }, [isAuthenticated, account, acquireToken])
 
@@ -242,18 +332,40 @@ export const AuthProvider = ({ children }) => {
    */
   useEffect(() => {
     const timer = setTimeout(() => {
-      setLoading(false)
-    }, 1000) // Give MSAL time to initialize
+      if (!isAuthenticated) {
+        setLoading(false)
+        setAuthState(AUTH_STATES.UNAUTHORIZED)
+      }
+    }, 2000) // Give MSAL time to initialize
 
     return () => clearTimeout(timer)
-  }, [])
+  }, [isAuthenticated])
 
-  // Add useEffect to run authorization check after authentication
+  /**
+   * Trigger authorization validation when prerequisites are met
+   */
   useEffect(() => {
-    if (isAuthenticated && accessToken && user && !authorizationChecked) {
-      validateUserAuthorization();
+    if (isAuthenticated && accessToken && user?.email && !authorizationChecked && authState === AUTH_STATES.LOADING) {
+      console.log('🔍 Prerequisites met, starting authorization validation')
+      validateUserAuthorization()
     }
-  }, [isAuthenticated, accessToken, user, authorizationChecked, validateUserAuthorization]);
+  }, [isAuthenticated, accessToken, user?.email, authorizationChecked, authState, validateUserAuthorization])
+
+  /**
+   * Handle loading state when authentication changes
+   */
+  useEffect(() => {
+    if (isAuthenticated && accessToken && user) {
+      setLoading(false)
+    }
+  }, [isAuthenticated, accessToken, user])
+
+  // =================================================================
+  // COMPUTED VALUES
+  // =================================================================
+  const isAuthorized = authState === AUTH_STATES.AUTHORIZED
+  const isUnauthorized = authState === AUTH_STATES.UNAUTHORIZED
+  const isAuthLoading = authState === AUTH_STATES.LOADING || loading
 
   // =================================================================
   // CONTEXT VALUE
@@ -265,9 +377,15 @@ export const AuthProvider = ({ children }) => {
     loading,
     error,
     permissions,
+
+    // Authorization state - NEW
+    authState,
+    isAuthorized,
+    isUnauthorized,
+    isAuthLoading,
     userRole,
     authorizationChecked,
-    validateUserAuthorization,
+    authorizationError,
     
     // Token management
     accessToken,
@@ -278,18 +396,20 @@ export const AuthProvider = ({ children }) => {
     signOut,
     acquireToken,
     
+    // Authorization actions - NEW
+    validateUserAuthorization,
+    retryAuthorization,
+    
     // Utility functions
     hasPermission,
-    
-    // Helper function to check role-based permissions
-    hasRole: useCallback((requiredRole) => {
-      const roleHierarchy = { 'ReadOnly': 1, 'User': 2, 'Admin': 3 };
-      return roleHierarchy[userRole] >= roleHierarchy[requiredRole];
-    }, [userRole]),
+    hasRole,
     
     // MSAL instance and account (for advanced usage)
     instance,
-    account
+    account,
+
+    // Constants
+    AUTH_STATES
   }
 
   // =================================================================
@@ -299,13 +419,15 @@ export const AuthProvider = ({ children }) => {
     useEffect(() => {
       console.log('🔐 Auth State Changed:', {
         isAuthenticated,
+        authState,
         user: user?.name,
+        userRole,
         hasToken: !!accessToken,
         permissions: permissions.length,
         loading,
-        error
+        error: error || authorizationError
       })
-    }, [isAuthenticated, user, accessToken, permissions, loading, error])
+    }, [isAuthenticated, authState, user, userRole, accessToken, permissions, loading, error, authorizationError])
   }
 
   return (
@@ -344,14 +466,56 @@ export const useAuthUser = () => {
  * Hook to handle authentication actions
  */
 export const useAuthActions = () => {
-  const { signIn, signOut, getAccessToken } = useAuth()
-  return { signIn, signOut, getAccessToken }
+  const { signIn, signOut, getAccessToken, retryAuthorization } = useAuth()
+  return { signIn, signOut, getAccessToken, retryAuthorization }
 }
 
 /**
- * Hook to check permissions
+ * Hook to check permissions and authorization
  */
 export const usePermissions = () => {
-  const { permissions, hasPermission } = useAuth()
-  return { permissions, hasPermission }
+  const { 
+    permissions, 
+    hasPermission, 
+    hasRole, 
+    userRole, 
+    isAuthorized, 
+    isUnauthorized,
+    authorizationError 
+  } = useAuth()
+  
+  return { 
+    permissions, 
+    hasPermission, 
+    hasRole, 
+    userRole, 
+    isAuthorized, 
+    isUnauthorized,
+    authorizationError 
+  }
+}
+
+/**
+ * Hook to get authorization state
+ */
+export const useAuthorizationState = () => {
+  const { 
+    authState, 
+    isAuthorized, 
+    isUnauthorized, 
+    isAuthLoading,
+    authorizationChecked,
+    authorizationError,
+    retryAuthorization 
+  } = useAuth()
+  
+  return { 
+    authState, 
+    isAuthorized, 
+    isUnauthorized, 
+    isAuthLoading,
+    authorizationChecked,
+    authorizationError,
+    retryAuthorization 
+  }
 }
