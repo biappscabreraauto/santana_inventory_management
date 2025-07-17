@@ -108,7 +108,37 @@ const InvoiceList = () => {
   }
 
   const handleExportInvoices = () => {
-    info('Export functionality coming soon!')
+    try {
+      // Create CSV content
+      const headers = ['Invoice Number', 'Buyer', 'Date', 'Status', 'Total Amount', 'Notes']
+      const csvContent = [
+        headers.join(','),
+        ...filteredInvoices.map(invoice => [
+          `"${invoice.invoiceNumber}"`,
+          `"${invoice.buyer}"`,
+          `"${formatDate(invoice.invoiceDate)}"`,
+          `"${invoice.status}"`,
+          invoice.totalAmount,
+          `"${(invoice.notes || '').replace(/"/g, '""')}"`
+        ].join(','))
+      ].join('\n')
+
+      // Create and download file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const link = document.createElement('a')
+      const url = URL.createObjectURL(blob)
+      link.setAttribute('href', url)
+      link.setAttribute('download', `invoices_${new Date().toISOString().split('T')[0]}.csv`)
+      link.style.visibility = 'hidden'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      
+      success('Invoices exported successfully!')
+    } catch (err) {
+      console.error('Export failed:', err)
+      error('Failed to export invoices')
+    }
   }
 
   const handleRefreshData = () => {
