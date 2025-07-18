@@ -45,6 +45,26 @@ jobs:
           output_location: "dist" # Built app content directory - optional
           github_id_token: ${{ steps.idtoken.outputs.result }}
           ###### End of Repository/Build Configurations ######
+        env:
+          # =========================================
+          # ABSOLUTELY REQUIRED ENVIRONMENT VARIABLES
+          # App will not function without these 9 variables
+          # =========================================
+          
+          # Azure AD Authentication (CRITICAL)
+          VITE_CLIENT_ID: ${{ secrets.VITE_CLIENT_ID }}
+          VITE_TENANT_ID: ${{ secrets.VITE_TENANT_ID }}
+          
+          # SharePoint Data Access (CRITICAL)
+          VITE_SHAREPOINT_SITE_URL: ${{ secrets.VITE_SHAREPOINT_SITE_URL }}
+          
+          # SharePoint List Names (CRITICAL)
+          VITE_PARTS_LIST_NAME: ${{ secrets.VITE_PARTS_LIST_NAME }}
+          VITE_CATEGORIES_LIST_NAME: ${{ secrets.VITE_CATEGORIES_LIST_NAME }}
+          VITE_BUYERS_LIST_NAME: ${{ secrets.VITE_BUYERS_LIST_NAME }}
+          VITE_INVOICES_LIST_NAME: ${{ secrets.VITE_INVOICES_LIST_NAME }}
+          VITE_TRANSACTIONS_LIST_NAME: ${{ secrets.VITE_TRANSACTIONS_LIST_NAME }}
+          VITE_AUTHORIZED_USERS_LIST_NAME: ${{ secrets.VITE_AUTHORIZED_USERS_LIST_NAME }}
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

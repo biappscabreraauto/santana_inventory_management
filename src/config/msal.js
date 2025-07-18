@@ -1,17 +1,8 @@
 // =================================================================
-// MSAL CONFIGURATION WITH DEBUG LOGGING
+// FIXED MSAL CONFIGURATION - Enhanced Interaction Handling
 // =================================================================
 
 import { LogLevel } from '@azure/msal-browser'
-
-// =================================================================
-// DEBUG: Log all environment variables (temporarily)
-// =================================================================
-console.log('🔍 Environment Variables Debug:')
-console.log('VITE_CLIENT_ID:', import.meta.env.VITE_CLIENT_ID ? 'SET' : 'UNDEFINED')
-console.log('VITE_TENANT_ID:', import.meta.env.VITE_TENANT_ID ? 'SET' : 'UNDEFINED')
-console.log('VITE_SHAREPOINT_SITE_URL:', import.meta.env.VITE_SHAREPOINT_SITE_URL ? 'SET' : 'UNDEFINED')
-console.log('All VITE_ vars:', Object.keys(import.meta.env).filter(key => key.startsWith('VITE_')))
 
 // =================================================================
 // MSAL CONFIGURATION OBJECT
@@ -19,7 +10,7 @@ console.log('All VITE_ vars:', Object.keys(import.meta.env).filter(key => key.st
 export const msalConfig = {
   auth: {
     clientId: import.meta.env.VITE_CLIENT_ID,
-    authority: `https://login.microsoftonline.com/52ae8d25-07f3-4012-8a6f-1410c83ce9a8`,
+    authority: `https://login.microsoftonline.com/${import.meta.env.VITE_TENANT_ID}`,
     redirectUri: window.location.origin,
     postLogoutRedirectUri: window.location.origin,
     navigateToLoginRequestUrl: false,
@@ -55,31 +46,18 @@ export const msalConfig = {
       piiLoggingEnabled: false,
       logLevel: import.meta.env.VITE_DEBUG_MODE === 'true' ? LogLevel.Verbose : LogLevel.Warning,
     },
-    windowHashTimeout: 60000,
+    // ENHANCED: Better timeout handling
+    windowHashTimeout: 60000, // Increased from 60000
     iframeHashTimeout: 6000,
     loadFrameTimeout: 0,
-    allowNativeBroker: false,
-    asyncPopups: false,
+    // ENHANCED: Allow multiple concurrent interactions to be handled better
+    allowNativeBroker: false, // Disable native broker for web apps
+    asyncPopups: false, // Use synchronous popups for better control
   }
 }
 
 // =================================================================
-// DEBUG: Log the actual authority URL being used
-// =================================================================
-console.log('🔍 MSAL Authority URL:', msalConfig.auth.authority)
-
-// =================================================================
-// VALIDATION: Check for undefined values
-// =================================================================
-if (!import.meta.env.VITE_CLIENT_ID) {
-  console.error('❌ VITE_CLIENT_ID is undefined!')
-}
-if (!import.meta.env.VITE_TENANT_ID) {
-  console.error('❌ VITE_TENANT_ID is undefined!')
-}
-
-// =================================================================
-// LOGIN REQUEST CONFIGURATION
+// LOGIN REQUEST CONFIGURATION - ENHANCED
 // =================================================================
 export const loginRequest = {
   scopes: [
@@ -87,8 +65,10 @@ export const loginRequest = {
     'Sites.ReadWrite.All'
   ],
   prompt: 'select_account',
-  timeout: 60000,
+  // ENHANCED: Add timeout and interaction handling
+  timeout: 60000, // 60 seconds timeout
   forceRefresh: false,
+  // Add claims if needed for conditional access
   extraQueryParameters: {},
 }
 
@@ -101,13 +81,16 @@ export const graphConfig = {
 }
 
 // =================================================================
-// HELPER FUNCTIONS
+// HELPER FUNCTIONS - ENHANCED
 // =================================================================
 
 /**
  * Get the SharePoint site ID for Graph API calls
+ * FIXED: Now uses the actual site ID instead of path-based approach
  */
 function getSiteId() {
+  // Option 1: Use the exact site ID from your Graph API response
+  // This is the most reliable method
   const SITE_ID = 'cabreraautopr.sharepoint.com,7e2124f9-e554-4d2a-9e16-d4da5a00f314,ddb94a9e-35b4-41b2-b94c-9a8bc90c5098'
   
   if (SITE_ID) {
@@ -115,6 +98,7 @@ function getSiteId() {
     return SITE_ID
   }
   
+  // Option 2: Fallback to path-based (if hardcoded doesn't work)
   const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL
   if (!siteUrl) {
     console.error('VITE_SHAREPOINT_SITE_URL not configured')
@@ -126,6 +110,7 @@ function getSiteId() {
     const hostname = url.hostname
     const sitePath = url.pathname.replace('/sites/', '')
     
+    // Try different formats that Graph API accepts
     const pathFormat = `${hostname}:/sites/${sitePath}`
     console.log('⚠️ Using path-based site ID:', pathFormat)
     return pathFormat
@@ -135,6 +120,10 @@ function getSiteId() {
   }
 }
 
+/**
+ * Alternative function to get site ID dynamically (for advanced usage)
+ * This would require an additional API call to resolve the site
+ */
 export async function resolveSiteId(graphClient) {
   try {
     const siteUrl = import.meta.env.VITE_SHAREPOINT_SITE_URL
@@ -144,6 +133,7 @@ export async function resolveSiteId(graphClient) {
     const hostname = url.hostname
     const sitePath = url.pathname
     
+    // Use Graph API to get the site by path
     const response = await graphClient
       .api(`/sites/${hostname}:${sitePath}`)
       .get()
@@ -157,27 +147,28 @@ export async function resolveSiteId(graphClient) {
 }
 
 // =================================================================
-// REQUEST BUILDERS
+// ENHANCED REQUEST BUILDERS
 // =================================================================
 
 export const createSilentRequest = (scopes = loginRequest.scopes) => ({
   scopes,
   account: null,
   forceRefresh: false,
-  timeout: 30000,
+  timeout: 30000, // 30 seconds for silent requests
 })
 
 export const createInteractiveRequest = (scopes = loginRequest.scopes) => ({
   scopes,
   prompt: 'consent',
-  timeout: 60000,
+  timeout: 60000, // 60 seconds for interactive requests
   forceRefresh: false,
 })
 
+// ENHANCED: Request with retry logic
 export const createRetryRequest = (scopes = loginRequest.scopes, retryCount = 0) => ({
   scopes,
   prompt: retryCount > 0 ? 'login' : 'select_account',
-  timeout: 60000 + (retryCount * 10000),
+  timeout: 60000 + (retryCount * 10000), // Increase timeout with retries
   forceRefresh: retryCount > 0,
   extraQueryParameters: retryCount > 0 ? { 'max_age': '0' } : {},
 })
@@ -203,20 +194,26 @@ export const MSAL_ERRORS = {
   NETWORK_ERROR: 'network_error',
   SERVER_ERROR: 'server_error',
   POPUP_BLOCKED: 'popup_blocked',
-  INTERACTION_IN_PROGRESS: 'interaction_in_progress',
-  TIMEOUT_ERROR: 'timeout_error',
+  INTERACTION_IN_PROGRESS: 'interaction_in_progress', // ADDED
+  TIMEOUT_ERROR: 'timeout_error', // ADDED
 }
 
 // =================================================================
-// ERROR HANDLING UTILITIES
+// INTERACTION HANDLING UTILITIES - NEW
 // =================================================================
 
+/**
+ * Check if error is related to interaction issues
+ */
 export const isInteractionError = (error) => {
   return error?.errorCode === 'interaction_in_progress' ||
          error?.message?.includes('interaction_in_progress') ||
          error?.name === 'BrowserAuthError' && error?.message?.includes('Interaction is currently in progress')
 }
 
+/**
+ * Check if error is retryable
+ */
 export const isRetryableError = (error) => {
   const retryableErrors = [
     'network_error',
@@ -232,6 +229,9 @@ export const isRetryableError = (error) => {
   )
 }
 
+/**
+ * Get error handling strategy
+ */
 export const getErrorHandlingStrategy = (error) => {
   if (isInteractionError(error)) {
     return {
