@@ -1,19 +1,51 @@
 // =================================================================
-// REVISED TRANSACTION HISTORY - SIMPLIFIED WITHOUT SUMMARIES
+// REVISED TRANSACTION HISTORY - SIMPLIFIED WITHOUT SUMMARIES WITH RBAC
 // =================================================================
 // Component for viewing all inventory transactions with proper cost/price display
 // Shows unit cost for inbound, unit price for outbound
+// Enhanced with role-based access control
 
 import React, { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
+import { useAuth } from '../../context/AuthContext'
+import { useRoleAccess } from '../../hooks/useRoleAccess'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import { useTransactions } from '../../hooks/useSharePoint'
 import { exportTransactionsToCSV } from '../../utils/csvExport'
 
 const TransactionHistory = () => {
-  const { success, showError, warning } = useToast()
+  const { success, error: showError, warning, info } = useToast()
+  const { userRole } = useAuth()
+  const { 
+    canCreate, 
+    canView, 
+    canExport,
+    isReadOnly, 
+    isUser, 
+    isAdmin,
+    canAccess 
+  } = useRoleAccess('ReadOnly')
   const { transactions, loading, error, refreshTransactions } = useTransactions()
+
+  // Early return if no access
+  if (!canAccess) {
+    return (
+      <div className="min-h-[400px] flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-400 text-4xl mb-4">⚠️</div>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Access Denied</h3>
+          <p className="text-gray-600 mb-4">You don't have permission to access this page.</p>
+          <button
+            onClick={() => window.history.back()}
+            className="btn btn-primary"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   // =================================================================
   // LOCAL STATE FOR FILTERING
@@ -214,40 +246,101 @@ const TransactionHistory = () => {
   // =================================================================
   return (
     <div className="space-y-6">
-      {/* Header - SIMPLIFIED */}
+      {/* Header with Role Badge */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Transaction History</h1>
-          <p className="text-gray-600">
-            Showing {filteredTransactions.length} of {transactions.length} transactions
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Transaction History</h1>
+            <p className="text-gray-600">
+              Showing {filteredTransactions.length} of {transactions.length} transactions
+            </p>
+          </div>
+          
+          {/* Role Badge */}
+          <div className="text-right sm:hidden">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              {userRole} Access
+            </span>
+            {isAdmin && (
+              <div className="mt-1 text-xs text-gray-500">Full System Access</div>
+            )}
+            {isUser && (
+              <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
+            )}
+            {isReadOnly && (
+              <div className="mt-1 text-xs text-gray-500">View Only Access</div>
+            )}
+          </div>
         </div>
         
-        <div className="flex flex-col sm:flex-row gap-3">
-          <button
-            onClick={handleRefreshData}
-            className="btn btn-outline"
-          >
-            🔄 Refresh
-          </button>
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
+          {/* Role Badge - Desktop */}
+          <div className="hidden sm:block text-right">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              {userRole} Access
+            </span>
+            {isAdmin && (
+              <div className="mt-1 text-xs text-gray-500">Full System Access</div>
+            )}
+            {isUser && (
+              <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
+            )}
+            {isReadOnly && (
+              <div className="mt-1 text-xs text-gray-500">View Only Access</div>
+            )}
+          </div>
           
-          <button
-            onClick={handleExportTransactions}
-            className="btn btn-secondary"
-          >
-            📊 Export
-          </button>
-          
-          <Link to="/transactions/new" className="btn btn-primary">
-            📦 Log New Transaction
-          </Link>
+          {/* Action Buttons */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            {/* Refresh Button - RBAC: Available to all users */}
+            <button
+              onClick={handleRefreshData}
+              className="btn btn-outline"
+            >
+              🔄 Refresh
+            </button>
+            
+            {/* Export Button - RBAC: Available to all users */}
+            {canExport && (
+              <button
+                onClick={handleExportTransactions}
+                className="btn btn-secondary"
+              >
+                📊 Export
+              </button>
+            )}
+            
+            {/* Log New Transaction Button - RBAC: Only Admin/User */}
+            {canCreate && (
+              <Link to="/transactions/new" className="btn btn-primary">
+                📦 Log New Transaction
+              </Link>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Filters - KEPT AS IS */}
+      {/* ReadOnly Notice */}
+      {isReadOnly && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <div className="text-blue-600 mr-2">ℹ️</div>
+            <div>
+              <span className="text-sm font-medium text-blue-800">
+                View Only Access
+              </span>
+              <p className="text-sm text-blue-700">
+                You can view and export transaction history but cannot create new transactions.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Filters - RBAC: Available to all users */}
       <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Search */}
+          {/* Search Input - RBAC: Available to all users */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Search
@@ -261,7 +354,7 @@ const TransactionHistory = () => {
             />
           </div>
 
-          {/* Movement Type Filter */}
+          {/* Movement Type Filter - RBAC: Available to all users */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Movement Type
@@ -279,7 +372,7 @@ const TransactionHistory = () => {
             </select>
           </div>
 
-          {/* Date Filter */}
+          {/* Date Filter - RBAC: Available to all users */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Date
@@ -292,7 +385,7 @@ const TransactionHistory = () => {
             />
           </div>
 
-          {/* Clear Filters */}
+          {/* Clear Filters - RBAC: Available to all users */}
           <div className="flex items-end">
             <button
               onClick={clearAllFilters}
@@ -304,7 +397,7 @@ const TransactionHistory = () => {
         </div>
       </div>
 
-      {/* Transactions Table - REVISED COLUMN HEADERS AND CONTENT */}
+      {/* Transactions Table - RBAC: Available to all users */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         {filteredTransactions.length === 0 ? (
           <div className="text-center py-12">
@@ -316,15 +409,18 @@ const TransactionHistory = () => {
                 : 'Get started by logging your first transaction.'
               }
             </p>
-            <Link to="/transactions/new" className="btn btn-primary">
-              Log First Transaction
-            </Link>
+            {canCreate && (
+              <Link to="/transactions/new" className="btn btn-primary">
+                Log First Transaction
+              </Link>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
+                  {/* Column Sorting - RBAC: Available to all users */}
                   <th
                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSort('created')}
@@ -349,7 +445,6 @@ const TransactionHistory = () => {
                   >
                     Quantity {getSortIcon('quantity')}
                   </th>
-                  {/* REVISED: Dynamic column header */}
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Unit Value
                   </th>
@@ -373,6 +468,7 @@ const TransactionHistory = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {formatDate(transaction.created)}
                     </td>
+                    {/* Part ID Link - RBAC: Available to all users */}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <Link
                         to={`/parts?search=${transaction.partId}`}
@@ -395,7 +491,6 @@ const TransactionHistory = () => {
                         {isInventoryIncrease(transaction.movementType) ? '+' : '-'}{transaction.quantity}
                       </span>
                     </td>
-                    {/* REVISED: Show appropriate unit value with label */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       <div className="flex flex-col">
                         <span className="font-medium">
@@ -409,6 +504,7 @@ const TransactionHistory = () => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                       {formatCurrency(getTransactionTotal(transaction))}
                     </td>
+                    {/* Invoice Link - RBAC: Available to all users */}
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {transaction.invoice && (
                         <Link 
@@ -439,7 +535,7 @@ const TransactionHistory = () => {
         )}
       </div>
 
-      {/* Filter Summary - KEPT AS IS */}
+      {/* Filter Summary - RBAC: Available to all users */}
       {(searchTerm || movementTypeFilter || dateFilter) && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center justify-between">

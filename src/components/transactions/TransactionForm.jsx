@@ -1,12 +1,15 @@
 // =================================================================
-// COMPLETE REVISED TRANSACTION FORM - FIXED CALCULATIONS
+// COMPLETE REVISED TRANSACTION FORM - FIXED CALCULATIONS WITH RBAC
 // =================================================================
 // Component for logging inbound inventory movements and adjustments
 // Fixed price/cost calculations based on movement type
+// Enhanced with role-based access control
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
+import { useAuth } from '../../context/AuthContext'
+import { useRoleAccess } from '../../hooks/useRoleAccess'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import { useTransactions, useParts } from '../../hooks/useSharePoint'
 
@@ -14,8 +17,36 @@ const TransactionForm = () => {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const { success, error } = useToast()
+  const { userRole } = useAuth()
+  const { 
+    canCreate, 
+    canView, 
+    isReadOnly, 
+    isUser, 
+    isAdmin,
+    canAccess 
+  } = useRoleAccess('ReadOnly')
   const { createTransaction } = useTransactions()
   const { parts, loading: partsLoading } = useParts()
+
+  // Early return if no access
+  if (!canAccess) {
+    return (
+      <div className="min-h-[400px] flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-400 text-4xl mb-4">⚠️</div>
+          <h3 className="text-lg font-medium text-gray-900 mb-2">Access Denied</h3>
+          <p className="text-gray-600 mb-4">You don't have permission to access this page.</p>
+          <button
+            onClick={() => navigate('/transactions')}
+            className="btn btn-primary"
+          >
+            Back to Transactions
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   // Get pre-selected part ID from URL params (when clicked from parts table)
   const preselectedPartId = searchParams.get('partId')
@@ -217,7 +248,7 @@ const TransactionForm = () => {
   // =================================================================
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      {/* Header */}
+      {/* Header with Role Badge */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">
@@ -232,13 +263,48 @@ const TransactionForm = () => {
           </p>
         </div>
         
-        <button
-          onClick={handleCancel}
-          className="btn btn-secondary"
-        >
-          Back to Transactions
-        </button>
+        <div className="flex items-center space-x-4">
+          {/* Role Badge */}
+          <div className="text-right">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              {userRole} Access
+            </span>
+            {isAdmin && (
+              <div className="mt-1 text-xs text-gray-500">Full System Access</div>
+            )}
+            {isUser && (
+              <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
+            )}
+            {isReadOnly && (
+              <div className="mt-1 text-xs text-gray-500">View Only Access</div>
+            )}
+          </div>
+          
+          <button
+            onClick={handleCancel}
+            className="btn btn-secondary"
+          >
+            Back to Transactions
+          </button>
+        </div>
       </div>
+
+      {/* ReadOnly Access Notice */}
+      {isReadOnly && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-center">
+            <div className="text-yellow-600 mr-2">⚠️</div>
+            <div>
+              <span className="text-sm font-medium text-yellow-800">
+                View Only Access
+              </span>
+              <p className="text-sm text-yellow-700">
+                You can view the transaction form but cannot create new transactions. Contact an administrator for access.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Pre-selected Part Notice */}
       {preselectedPartId && (
@@ -261,7 +327,7 @@ const TransactionForm = () => {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200">
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           
-          {/* Movement Type - UPDATED for better UX */}
+          {/* Movement Type - RBAC: ReadOnly can see but not modify */}
           <div>
             <label htmlFor="movementType" className="block text-sm font-medium text-gray-700 mb-1">
               Transaction Type
@@ -271,7 +337,8 @@ const TransactionForm = () => {
               name="movementType"
               value={formData.movementType}
               onChange={handleInputChange}
-              className="input"
+              disabled={isReadOnly}
+              className={`input ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
             >
               <option value="In (Received)">📦 In (Received) - Add inventory</option>
               <option value="Out (Sold)">📤 Out (Sold) - Remove inventory</option>
@@ -284,7 +351,7 @@ const TransactionForm = () => {
             </p>
           </div>
 
-          {/* Part Selection */}
+          {/* Part Selection - RBAC: ReadOnly can see but not modify */}
           <div>
             <label htmlFor="partId" className="block text-sm font-medium text-gray-700 mb-1">
               Part *
@@ -294,7 +361,8 @@ const TransactionForm = () => {
               name="partId"
               value={formData.partId}
               onChange={handleInputChange}
-              className={`input ${errors.partId ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+              disabled={isReadOnly}
+              className={`input ${errors.partId ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''} ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
             >
               <option value="">Select a part...</option>
               {parts
@@ -354,7 +422,7 @@ const TransactionForm = () => {
             </div>
           )}
 
-          {/* Quantity */}
+          {/* Quantity - RBAC: ReadOnly can see but not modify */}
           <div>
             <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 mb-1">
               Quantity *
@@ -365,17 +433,18 @@ const TransactionForm = () => {
               name="quantity"
               value={formData.quantity}
               onChange={handleInputChange}
+              disabled={isReadOnly}
               min="1"
               step="1"
               placeholder="0"
-              className={`input ${errors.quantity ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+              className={`input ${errors.quantity ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''} ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
             />
             {errors.quantity && (
               <p className="mt-1 text-sm text-red-600">{errors.quantity}</p>
             )}
           </div>
 
-          {/* Date */}
+          {/* Date - RBAC: ReadOnly can see but not modify */}
           <div>
             <label htmlFor="receiptDate" className="block text-sm font-medium text-gray-700 mb-1">
               Transaction Date *
@@ -386,14 +455,15 @@ const TransactionForm = () => {
               name="receiptDate"
               value={formData.receiptDate}
               onChange={handleInputChange}
-              className={`input ${errors.receiptDate ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+              disabled={isReadOnly}
+              className={`input ${errors.receiptDate ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''} ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
             />
             {errors.receiptDate && (
               <p className="mt-1 text-sm text-red-600">{errors.receiptDate}</p>
             )}
           </div>
 
-          {/* Supplier - CONDITIONAL DISPLAY */}
+          {/* Supplier - CONDITIONAL DISPLAY - RBAC: ReadOnly can see but not modify */}
           {(formData.movementType === 'In (Received)' || formData.movementType === 'Adjustment') && (
             <div>
               <label htmlFor="supplier" className="block text-sm font-medium text-gray-700 mb-1">
@@ -405,13 +475,14 @@ const TransactionForm = () => {
                 name="supplier"
                 value={formData.supplier}
                 onChange={handleInputChange}
+                disabled={isReadOnly}
                 placeholder="e.g., Parts Warehouse Inc"
-                className="input"
+                className={`input ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
               />
             </div>
           )}
 
-          {/* Notes */}
+          {/* Notes - RBAC: ReadOnly can see but not modify */}
           <div>
             <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
               Notes <span className="text-gray-500">(Optional)</span>
@@ -421,9 +492,10 @@ const TransactionForm = () => {
               name="notes"
               value={formData.notes}
               onChange={handleInputChange}
+              disabled={isReadOnly}
               rows={3}
               placeholder="Additional notes about this transaction..."
-              className="input"
+              className={`input ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
             />
           </div>
 
@@ -487,39 +559,43 @@ const TransactionForm = () => {
             </div>
           )}
 
-          {/* Form Actions */}
+          {/* Form Actions - RBAC: ReadOnly cannot submit */}
           <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-gray-200">
-            <button
-              type="submit"
-              disabled={saving}
-              className="btn btn-primary flex-1 sm:flex-none sm:px-8"
-            >
-              {saving ? (
-                <>
-                  <LoadingSpinner size="sm" className="mr-2" />
-                  Logging Transaction...
-                </>
-              ) : (
-                <>
-                  Log {formData.movementType === 'In (Received)' ? 'Inbound' :
-                       formData.movementType === 'Out (Sold)' ? 'Outbound' : 'Adjustment'} Transaction
-                </>
-              )}
-            </button>
+            {/* Log Transaction Button - RBAC: Only Admin/User can submit */}
+            {canCreate && (
+              <button
+                type="submit"
+                disabled={saving}
+                className="btn btn-primary flex-1 sm:flex-none sm:px-8"
+              >
+                {saving ? (
+                  <>
+                    <LoadingSpinner size="sm" className="mr-2" />
+                    Logging Transaction...
+                  </>
+                ) : (
+                  <>
+                    Log {formData.movementType === 'In (Received)' ? 'Inbound' :
+                         formData.movementType === 'Out (Sold)' ? 'Outbound' : 'Adjustment'} Transaction
+                  </>
+                )}
+              </button>
+            )}
             
+            {/* Cancel Button - RBAC: Available to all users */}
             <button
               type="button"
               onClick={handleCancel}
               disabled={saving}
               className="btn btn-secondary flex-1 sm:flex-none sm:px-8"
             >
-              Cancel
+              {isReadOnly ? 'Back to Transactions' : 'Cancel'}
             </button>
           </div>
 
           {/* Required Fields Note & Information */}
           <div className="text-sm text-gray-500 pt-4 border-t border-gray-200 space-y-2">
-            <p>* Required fields must be completed before saving</p>
+            {canCreate && <p>* Required fields must be completed before saving</p>}
             <div className="bg-blue-50 border border-blue-200 rounded p-3 mt-4">
               <h5 className="text-sm font-medium text-blue-900 mb-1">Transaction Processing</h5>
               <div className="text-sm text-blue-700 space-y-1">
@@ -527,6 +603,9 @@ const TransactionForm = () => {
                 <p>• <strong>Outbound transactions:</strong> Use unit price for revenue calculation</p>
                 <p>• <strong>Adjustments:</strong> Use unit cost for inventory correction</p>
                 <p>• <strong>Inventory levels:</strong> Updated automatically after transaction</p>
+                {isReadOnly && (
+                  <p>• <strong>View Only:</strong> You can view transaction details but cannot create new transactions</p>
+                )}
               </div>
             </div>
           </div>
