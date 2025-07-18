@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
+import { useRoleAccess } from '../../hooks/useRoleAccess'
+import RoleProtected from '../auth/RoleProtected'
 
 // =================================================================
 // EXTERNAL SEARCH PROVIDERS
@@ -80,6 +82,12 @@ const ExternalLookup = () => {
   const location = useLocation()
   const navigate = useNavigate()
   const { success, info } = useToast()
+  const { canAccess, isReadOnly, userRole, isAdmin, isUser } = useRoleAccess('ReadOnly')
+  
+  // Early return if no access
+  if (!canAccess) {
+    return <RoleProtected requiredRole="ReadOnly" />
+  }
   
   // State management
   const [searchTerm, setSearchTerm] = useState('')
@@ -106,7 +114,7 @@ const ExternalLookup = () => {
   }, [])
 
   // =================================================================
-  // SEARCH FUNCTIONALITY
+  // SEARCH FUNCTIONALITY - ALL USERS CAN SEARCH
   // =================================================================
   
   /**
@@ -156,7 +164,7 @@ const ExternalLookup = () => {
   }
 
   /**
-   * Clear search history
+   * Clear search history - Available to User+ roles only
    */
   const clearHistory = () => {
     try {
@@ -195,10 +203,24 @@ const ExternalLookup = () => {
               Search for automotive parts across multiple external providers
             </p>
           </div>
-          <div className="text-4xl">🔍</div>
+          <div className="text-right">
+            <div className="text-4xl mb-2">🔍</div>
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              {userRole} Access
+            </span>
+            {isAdmin && (
+              <div className="mt-1 text-xs text-gray-500">Full System Access</div>
+            )}
+            {isUser && (
+              <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
+            )}
+            {isReadOnly && (
+              <div className="mt-1 text-xs text-gray-500">Full External Search Access</div>
+            )}
+          </div>
         </div>
 
-        {/* Main Search Form */}
+        {/* Main Search Form - Available to ALL users */}
         <div className="space-y-4">
           <div className="flex gap-3">
             <div className="flex-1">
@@ -224,7 +246,7 @@ const ExternalLookup = () => {
             </button>
           </div>
 
-          {/* Provider Selection */}
+          {/* Provider Selection - Available to ALL users */}
           <div className="flex flex-wrap gap-2">
             <span className="text-sm font-medium text-gray-700 py-2">Search on:</span>
             {searchProviders.map(provider => (
@@ -251,26 +273,25 @@ const ExternalLookup = () => {
         </div>
       </div>
 
-      {/* Recent Searches */}
+      {/* Recent Searches - Available to ALL users */}
       {recentSearches.length > 0 && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">Recent Searches</h3>
-            <button
-              onClick={clearHistory}
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
-              Clear All
-            </button>
+            <RoleProtected requiredRole="User" hideIfUnauthorized>
+              <button
+                onClick={clearHistory}
+                className="text-sm text-gray-500 hover:text-gray-700"
+              >
+                Clear All
+              </button>
+            </RoleProtected>
           </div>
           <div className="space-y-2">
             {recentSearches.map((term, index) => (
               <button
                 key={index}
-                onClick={() => {
-                  setSearchTerm(term)
-                  handleSearch(term)
-                }}
+                onClick={() => handleSearch(term)}
                 className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-lg"
               >
                 🕒 {term}
@@ -279,6 +300,46 @@ const ExternalLookup = () => {
           </div>
         </div>
       )}
+
+      {/* Quick Search Suggestions - Available to ALL users */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Search Suggestions</h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          {quickSearchSuggestions.map((suggestion, index) => (
+            <button
+              key={index}
+              onClick={() => handleSearch(suggestion.search)}
+              className="p-3 rounded-lg border border-gray-200 text-left hover:border-blue-300 hover:bg-blue-50 transition-colors"
+            >
+              <div className="font-medium text-sm">{suggestion.label}</div>
+              <div className="text-xs text-gray-500 mt-1">{suggestion.search}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Provider Information - Available to ALL users */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Search Providers</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {searchProviders.map(provider => (
+            <div key={provider.id} className="border border-gray-200 rounded-lg p-4">
+              <div className="flex items-center mb-3">
+                <span className="text-2xl mr-3">{provider.icon}</span>
+                <div>
+                  <h4 className="font-semibold text-gray-900">{provider.name}</h4>
+                  <p className="text-sm text-gray-600">{provider.description}</p>
+                </div>
+              </div>
+              <ul className="text-xs text-gray-500 space-y-1">
+                {provider.features.map((feature, idx) => (
+                  <li key={idx}>• {feature}</li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
