@@ -178,18 +178,6 @@ const ExternalLookup = () => {
   }
 
   // =================================================================
-  // QUICK SEARCH SUGGESTIONS
-  // =================================================================
-  const quickSearchSuggestions = [
-    { label: 'Oil Filter', search: 'oil filter' },
-    { label: 'Brake Pads', search: 'brake pads' },
-    { label: 'Air Filter', search: 'air filter' },
-    { label: 'Spark Plugs', search: 'spark plugs' },
-    { label: 'Alternator', search: 'alternator' },
-    { label: 'Water Pump', search: 'water pump' }
-  ]
-
-  // =================================================================
   // RENDER COMPONENT
   // =================================================================
   return (
@@ -300,46 +288,6 @@ const ExternalLookup = () => {
           </div>
         </div>
       )}
-
-      {/* Quick Search Suggestions - Available to ALL users */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Search Suggestions</h3>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          {quickSearchSuggestions.map((suggestion, index) => (
-            <button
-              key={index}
-              onClick={() => handleSearch(suggestion.search)}
-              className="p-3 rounded-lg border border-gray-200 text-left hover:border-blue-300 hover:bg-blue-50 transition-colors"
-            >
-              <div className="font-medium text-sm">{suggestion.label}</div>
-              <div className="text-xs text-gray-500 mt-1">{suggestion.search}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Provider Information - Available to ALL users */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Search Providers</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {searchProviders.map(provider => (
-            <div key={provider.id} className="border border-gray-200 rounded-lg p-4">
-              <div className="flex items-center mb-3">
-                <span className="text-2xl mr-3">{provider.icon}</span>
-                <div>
-                  <h4 className="font-semibold text-gray-900">{provider.name}</h4>
-                  <p className="text-sm text-gray-600">{provider.description}</p>
-                </div>
-              </div>
-              <ul className="text-xs text-gray-500 space-y-1">
-                {provider.features.map((feature, idx) => (
-                  <li key={idx}>• {feature}</li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

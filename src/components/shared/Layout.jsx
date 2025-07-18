@@ -249,9 +249,13 @@ const Layout = ({ children }) => {
           {/* Sidebar Header */}
           <div className="flex items-center justify-between h-16 px-6 bg-blue-600 text-white">
             <div className="flex items-center">
-              <div className="text-xl font-bold">
+              <button
+                onClick={() => handleNavigation('/')}
+                className="text-xl font-bold text-white hover:text-gray-200 transition-colors duration-200 cursor-pointer focus:outline-none focus:ring-2 focus:ring-white focus:ring-opacity-50 rounded px-2 py-1"
+                title="Go to Dashboard"
+              >
                 {import.meta.env.VITE_APP_NAME?.split(' ')[0] || 'Santana'}
-              </div>
+              </button>
             </div>
             <button
               onClick={() => setSidebarOpen(false)}

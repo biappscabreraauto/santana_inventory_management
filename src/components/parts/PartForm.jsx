@@ -115,7 +115,7 @@ const PartForm = () => {
       case 'notes':
         return canEdit || canCreate
       case 'unitCost':
-        return canEdit || canCreate
+        return isAdmin // Admin only fields
       case 'status':
         return isAdmin // Admin only fields
       case 'inventoryOnHand':
