@@ -1,13 +1,15 @@
 // =================================================================
-// ENHANCED PART FORM - HYBRID SOLUTION WITH DUPLICATE VALIDATION
+// ENHANCED PART FORM - HYBRID SOLUTION WITH ACCESS CONTROL
 // =================================================================
 // HYBRID SOLUTION: Category field is now text with validation against Categories list
 // Enhanced with cascading family/category dropdowns, automatic family display,
-// and comprehensive duplicate Part ID prevention
+// comprehensive duplicate Part ID prevention, and role-based access control
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
+import { useRoleAccess } from '../../hooks/useRoleAccess'
+import RoleProtected from '../auth/RoleProtected'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import { useCategories, usePart, useParts, useTransactions } from '../../hooks/useSharePoint'
 
@@ -20,6 +22,31 @@ const PartForm = () => {
   
   const isEditMode = Boolean(id)
   const pageTitle = isEditMode ? 'Edit Part' : 'Add New Part'
+
+  // =================================================================
+  // ACCESS CONTROL - ROLE-BASED PERMISSIONS
+  // =================================================================
+  const { 
+    canAccess, 
+    canCreate, 
+    canEdit, 
+    canView,
+    isReadOnly, 
+    isUser, 
+    isAdmin,
+    userRole 
+  } = useRoleAccess('User') // Require User level access for part creation/editing
+
+  // Early return if no access - ReadOnly users cannot create/edit parts
+  if (!canAccess || (isReadOnly && !isEditMode)) {
+    return <RoleProtected requiredRole="User" />
+  }
+
+  // For edit mode, ReadOnly users should be redirected to view mode
+  if (isEditMode && isReadOnly) {
+    navigate(`/parts/${id}`)
+    return null
+  }
 
   // =================================================================
   // SHAREPOINT HOOKS - HYBRID SOLUTION ENHANCED
@@ -50,7 +77,9 @@ const PartForm = () => {
     inventoryOnHand: 0,
     unitCost: '',
     unitPrice: '',
-    status: 'Active'
+    status: 'Active',
+    supplier: '',
+    notes: ''
   })
   const [errors, setErrors] = useState({})
   const [touched, setTouched] = useState({})
@@ -67,6 +96,51 @@ const PartForm = () => {
     notes: '',
     receiptDate: new Date().toISOString().split('T')[0]
   })
+
+  // =================================================================
+  // ACCESS POINT HELPER FUNCTIONS
+  // =================================================================
+  
+  // Check if specific field is editable based on role
+  const canEditField = (fieldName) => {
+    if (isReadOnly) return false
+    
+    switch (fieldName) {
+      case 'partId':
+        return (canCreate && !isEditMode) || (canEdit && isEditMode)
+      case 'description':
+      case 'category':
+      case 'unitPrice':
+      case 'supplier':
+      case 'notes':
+        return canEdit || canCreate
+      case 'unitCost':
+        return canEdit || canCreate
+      case 'status':
+        return isAdmin // Admin only fields
+      case 'inventoryOnHand':
+        return (canCreate && !isEditMode) // Create only
+      default:
+        return canEdit || canCreate
+    }
+  }
+
+  // Check if action button should be available
+  const canPerformAction = (actionType) => {
+    switch (actionType) {
+      case 'create':
+        return canCreate && !isEditMode && !isReadOnly
+      case 'update':
+        return canEdit && isEditMode && !isReadOnly
+      case 'cancel':
+      case 'viewDetails':
+        return true // Available to all users
+      case 'automaticTransaction':
+        return (canCreate || canEdit) && !isReadOnly
+      default:
+        return false
+    }
+  }
 
   // =================================================================
   // DATA LOADING AND INITIALIZATION
@@ -89,7 +163,7 @@ const PartForm = () => {
 
   // Show transaction details when inventory > 0 for new parts
   useEffect(() => {
-    if (!isEditMode && formData.inventoryOnHand > 0) {
+    if (!isEditMode && formData.inventoryOnHand > 0 && canPerformAction('automaticTransaction')) {
       setShowTransactionDetails(true)
     } else if (!isEditMode && formData.inventoryOnHand === 0) {
       setShowTransactionDetails(false)
@@ -107,7 +181,9 @@ const PartForm = () => {
           inventoryOnHand: partData.inventoryOnHand || 0,
           unitCost: partData.unitCost?.toString() || '',
           unitPrice: partData.unitPrice?.toString() || '',
-          status: partData.status || 'Active'
+          status: partData.status || 'Active',
+          supplier: partData.supplier || '',
+          notes: partData.notes || ''
         })
 
         // HYBRID SOLUTION: Set family based on category
@@ -143,194 +219,160 @@ const PartForm = () => {
   }, [selectedFamily, categoriesByFamily, categoryNames])
 
   // =================================================================
-  // EVENT HANDLERS - HYBRID SOLUTION ENHANCED WITH DUPLICATE VALIDATION
+  // EVENT HANDLERS - HYBRID SOLUTION ENHANCED WITH ACCESS CONTROL
   // =================================================================
   
   const handleInputChange = (e) => {
     const { name, value, type } = e.target
     
+    // Check if field is editable before allowing changes
+    if (!canEditField(name)) {
+      return
+    }
+    
     let processedValue = value
     
     if (type === 'number' && name === 'inventoryOnHand') {
-      processedValue = value === '' ? 0 : parseInt(value, 10) || 0
-    } else if (name === 'unitCost' || name === 'unitPrice') {
-      processedValue = value
-      if (value !== '' && !/^\d*\.?\d*$/.test(value)) {
-        return
-      }
+      processedValue = value === '' ? 0 : Math.max(0, parseInt(value) || 0)
     }
-    
+
     setFormData(prev => ({
       ...prev,
       [name]: processedValue
     }))
 
-    setTouched(prev => ({ ...prev, [name]: true }))
+    // Mark field as touched
+    setTouched(prev => ({
+      ...prev,
+      [name]: true
+    }))
 
-    // Clear error when user starts typing
+    // Clear any existing error for this field
     if (errors[name]) {
-      setErrors(prev => ({ ...prev, [name]: '' }))
+      setErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }))
     }
 
-    // REAL-TIME DUPLICATE VALIDATION for Part ID
-    if (name === 'partId' && !isEditMode && allParts && allParts.length > 0) {
-      const trimmedValue = processedValue.trim()
-      if (trimmedValue.length >= 2) {
-        const duplicatePart = allParts.find(part => 
-          part.partId.toLowerCase() === trimmedValue.toLowerCase()
-        )
-        if (duplicatePart) {
-          setErrors(prev => ({ 
-            ...prev, 
-            partId: `Part ID "${trimmedValue}" already exists. Choose a different Part ID.` 
-          }))
-        }
-      }
-    }
-  }
-
-  // HYBRID SOLUTION: Handle family selection (filters categories)
-  const handleFamilyChange = (e) => {
-    const family = e.target.value
-    setSelectedFamily(family)
-    
-    // Clear category when family changes (except if showing family first)
-    if (!showFamilyFirst) {
-      setFormData(prev => ({ ...prev, category: '' }))
+    // HYBRID SOLUTION: Handle family/category cascading with access control
+    if (name === 'selectedFamily' && canEditField('category')) {
+      setSelectedFamily(value)
+      // Clear category when family changes
+      setFormData(prev => ({
+        ...prev,
+        category: ''
+      }))
       setDisplayFamily('')
     }
   }
 
-  // HYBRID SOLUTION: Handle category selection with validation
-  const handleCategoryChange = async (e) => {
-    const category = e.target.value
+  const handleBlur = (e) => {
+    const { name, value } = e.target
     
-    // Update form data
-    setFormData(prev => ({ ...prev, category }))
-    setTouched(prev => ({ ...prev, category: true }))
+    setTouched(prev => ({
+      ...prev,
+      [name]: true
+    }))
 
-    // Clear category error
-    if (errors.category) {
-      setErrors(prev => ({ ...prev, category: '' }))
+    // HYBRID SOLUTION: Validate category against Categories list with access control
+    if (name === 'category' && value && canEditField('category')) {
+      const isValid = validateCategory(value)
+      if (!isValid) {
+        setErrors(prev => ({
+          ...prev,
+          category: `"${value}" is not in the Categories list. Please select a valid category.`
+        }))
+      }
     }
 
-    // HYBRID SOLUTION: Validate category against Categories list
-    if (category && categories.length > 0) {
-      try {
-        const isValid = await validateCategory(category)
-        if (!isValid) {
-          setErrors(prev => ({ 
-            ...prev, 
-            category: `"${category}" is not a valid category. Please select from the dropdown.` 
+    // Real-time Part ID duplicate validation (create mode only)
+    if (name === 'partId' && value && !isEditMode && canEditField('partId')) {
+      const trimmedValue = value.trim()
+      if (trimmedValue.length >= 2) {
+        const isDuplicate = allParts && allParts.find(part => 
+          part.partId.toLowerCase() === trimmedValue.toLowerCase()
+        )
+        
+        if (isDuplicate) {
+          setErrors(prev => ({
+            ...prev,
+            partId: `Part ID "${trimmedValue}" already exists. Please choose a different ID.`
           }))
-        } else {
-          // Auto-set family when valid category is selected
-          const family = getFamilyByCategory(category)
-          if (family && family !== selectedFamily) {
-            setSelectedFamily(family)
-          }
         }
-      } catch (err) {
-        console.error('Category validation error:', err)
       }
     }
   }
 
-  // Handle transaction data changes
   const handleTransactionChange = (e) => {
     const { name, value } = e.target
+    
+    // Only allow transaction changes if user can create transactions
+    if (!canPerformAction('automaticTransaction')) {
+      return
+    }
+    
     setTransactionData(prev => ({
       ...prev,
       [name]: value
     }))
   }
 
-  // Toggle between family-first and category-first selection modes
-  const toggleSelectionMode = () => {
-    setShowFamilyFirst(!showFamilyFirst)
-    setSelectedFamily('')
-    setFormData(prev => ({ ...prev, category: '' }))
-    setDisplayFamily('')
-  }
-
   // =================================================================
-  // VALIDATION - HYBRID SOLUTION ENHANCED WITH DUPLICATE CHECK
+  // VALIDATION - ENHANCED WITH ACCESS CONTROL
   // =================================================================
   
-  const validateForm = async () => {
+  const validateForm = () => {
     const newErrors = {}
 
-    // Part ID validation
-    if (!formData.partId.trim()) {
+    // Required field validation (only check editable fields)
+    if (canEditField('partId') && !formData.partId.trim()) {
       newErrors.partId = 'Part ID is required'
-    } else if (formData.partId.length < 2) {
-      newErrors.partId = 'Part ID must be at least 2 characters'
-    } else if (!/^[A-Za-z0-9\-_.]+$/.test(formData.partId)) {
-      newErrors.partId = 'Part ID can only contain letters, numbers, dashes (-), underscores (_), and periods (.)'
-    } else {
-      // DUPLICATE VALIDATION: Check if Part ID already exists (only for new parts)
-      if (!isEditMode && allParts && allParts.length > 0) {
-        const duplicatePart = allParts.find(part => 
-          part.partId.toLowerCase() === formData.partId.toLowerCase().trim()
-        )
-        if (duplicatePart) {
-          newErrors.partId = `Part ID "${formData.partId}" already exists. Part IDs must be unique.`
-        }
-      }
     }
 
-    // Description validation
-    if (!formData.description.trim()) {
+    if (canEditField('description') && !formData.description.trim()) {
       newErrors.description = 'Description is required'
-    } else if (formData.description.length < 5) {
-      newErrors.description = 'Description must be at least 5 characters'
     }
 
-    // HYBRID SOLUTION: Enhanced category validation
-    if (!formData.category || formData.category.trim() === '') {
+    if (canEditField('category') && !formData.category.trim()) {
       newErrors.category = 'Category is required'
-    } else {
-      try {
-        const isValidCategory = await validateCategory(formData.category)
-        if (!isValidCategory) {
-          newErrors.category = `"${formData.category}" is not a valid category. Please select from the available categories.`
-        }
-      } catch (err) {
-        newErrors.category = 'Unable to validate category. Please check your selection.'
+    }
+
+    // Part ID duplicate check (create mode only)
+    if (!isEditMode && formData.partId.trim() && canEditField('partId')) {
+      const isDuplicate = allParts && allParts.find(part => 
+        part.partId.toLowerCase() === formData.partId.trim().toLowerCase()
+      )
+      if (isDuplicate) {
+        newErrors.partId = `Part ID "${formData.partId.trim()}" already exists. Please choose a different ID.`
       }
     }
 
-    // Inventory validation - SKIP in edit mode since field is disabled
-    if (!isEditMode && formData.inventoryOnHand < 0) {
-      newErrors.inventoryOnHand = 'Inventory cannot be negative'
+    // HYBRID SOLUTION: Category validation against Categories list
+    if (formData.category && canEditField('category')) {
+      const isValid = validateCategory(formData.category)
+      if (!isValid) {
+        newErrors.category = `"${formData.category}" is not in the Categories list. Please select a valid category.`
+      }
     }
 
-    // Cost validation
-    if (!formData.unitCost || formData.unitCost === '') {
-      newErrors.unitCost = 'Unit cost is required'
-    } else {
-      const costValue = parseFloat(formData.unitCost)
-      if (isNaN(costValue) || costValue < 0) {
+    // Numeric field validation (only for editable fields)
+    if (canEditField('unitCost') && formData.unitCost) {
+      const cost = parseFloat(formData.unitCost)
+      if (isNaN(cost) || cost < 0) {
         newErrors.unitCost = 'Unit cost must be a valid positive number'
       }
     }
 
-    // Price validation
-    if (!formData.unitPrice || formData.unitPrice === '') {
-      newErrors.unitPrice = 'Unit price is required'
-    } else {
-      const priceValue = parseFloat(formData.unitPrice)
-      const costValue = parseFloat(formData.unitCost)
-      
-      if (isNaN(priceValue) || priceValue < 0) {
+    if (canEditField('unitPrice') && formData.unitPrice) {
+      const price = parseFloat(formData.unitPrice)
+      if (isNaN(price) || price < 0) {
         newErrors.unitPrice = 'Unit price must be a valid positive number'
-      } else if (!isNaN(costValue) && priceValue < costValue) {
-        newErrors.unitPrice = 'Unit price should not be less than unit cost'
       }
     }
 
-    // Transaction validation for initial stock
-    if (!isEditMode && formData.inventoryOnHand > 0) {
+    // Transaction validation (if showing transaction details and user has access)
+    if (showTransactionDetails && canPerformAction('automaticTransaction')) {
       if (!transactionData.receiptDate) {
         newErrors.receiptDate = 'Receipt date is required for initial stock'
       }
@@ -341,85 +383,66 @@ const PartForm = () => {
   }
 
   // =================================================================
-  // FORM SUBMISSION - HYBRID SOLUTION READY
+  // FORM SUBMISSION - ENHANCED WITH ACCESS CONTROL
   // =================================================================
   
   const handleSubmit = async (e) => {
     e.preventDefault()
     
-    const isValid = await validateForm()
-    if (!isValid) {
-      error('Please fix the validation errors before submitting')
+    // Check access before submission
+    if (!canPerformAction(isEditMode ? 'update' : 'create')) {
+      error('You do not have permission to perform this action')
       return
     }
 
-    try {
-      setSaving(true)
+    if (!validateForm()) {
+      error('Please fix the errors before submitting')
+      return
+    }
 
-      // Convert string values to numbers for submission
-      const submissionData = {
-        ...formData,
-        // HYBRID SOLUTION: Category submitted as direct text value
+    setSaving(true)
+
+    try {
+      const partData = {
+        partId: formData.partId.trim(),
+        description: formData.description.trim(),
         category: formData.category.trim(),
-        unitCost: parseFloat(formData.unitCost) || 0,
-        unitPrice: parseFloat(formData.unitPrice) || 0
+        inventoryOnHand: isEditMode ? formData.inventoryOnHand : parseInt(formData.inventoryOnHand) || 0,
+        unitCost: formData.unitCost ? parseFloat(formData.unitCost) : 0,
+        unitPrice: formData.unitPrice ? parseFloat(formData.unitPrice) : 0,
+        status: formData.status,
+        supplier: formData.supplier?.trim() || '',
+        notes: formData.notes?.trim() || ''
       }
 
       if (isEditMode) {
-        // For edit mode: NEVER include inventoryOnHand
-        const editData = {
-          partId: submissionData.partId,
-          description: submissionData.description,
-          category: submissionData.category,
-          unitCost: submissionData.unitCost,
-          unitPrice: submissionData.unitPrice,
-          status: submissionData.status
-          // Deliberately excluding inventoryOnHand
-        };
-        
-        console.log('Updating part (inventory protected):', editData)
-        
-        await updatePart(id, editData)
+        await updatePart(id, partData)
         success('Part updated successfully!')
       } else {
-        // For new parts: Create with ZERO inventory first, then let transaction set it
-        const newPartData = {
-          ...submissionData,
-          inventoryOnHand: 0,  // ✅ ALWAYS start with zero
-          isNewPart: true      // Flag for the service layer
-        };
+        await createPart(partData)
         
-        console.log('Creating new part with zero inventory:', newPartData)
-        
-        // Create the part first
-        const newPart = await createPart(newPartData)
-        
-        // Then create initial stock transaction if needed
-        if (submissionData.inventoryOnHand > 0) {
+        // Create initial transaction if inventory > 0 and user has access
+        if (partData.inventoryOnHand > 0 && canPerformAction('automaticTransaction')) {
           try {
-            const initialTransaction = {
-              partId: submissionData.partId,
+            await createTransaction({
+              partId: partData.partId,
               movementType: 'In (Received)',
-              quantity: submissionData.inventoryOnHand,
-              unitCost: submissionData.unitCost,
-              supplier: transactionData.supplier || 'Initial Stock',
-              notes: transactionData.notes || 'Initial inventory setup',
-              receiptDate: transactionData.receiptDate
-            }
-            
-            console.log('Creating initial stock transaction:', initialTransaction)
-            await createTransaction(initialTransaction)
-            success(`Part created successfully with ${submissionData.inventoryOnHand} units in stock!`)
+              quantity: partData.inventoryOnHand,
+              receiptDate: transactionData.receiptDate,
+              supplier: transactionData.supplier?.trim() || '',
+              notes: transactionData.notes?.trim() || 'Initial inventory setup'
+            })
+            success('Part created successfully with initial stock transaction!')
           } catch (transactionError) {
-            console.error('Failed to create initial stock transaction:', transactionError)
-            success('Part created successfully, but initial stock transaction failed. Please add inventory manually.')
+            console.warn('Failed to create initial transaction:', transactionError)
+            success('Part created successfully! Please add inventory manually.')
           }
         } else {
           success('Part created successfully!')
         }
-        
-        navigate('/parts')
       }
+      
+      navigate('/parts')
     } catch (err) {
       console.error('Form submission error:', err)
       error(err.message || 'An error occurred while saving the part')
@@ -503,7 +526,7 @@ const PartForm = () => {
   }
 
   // =================================================================
-  // MAIN RENDER
+  // MAIN RENDER - WITH ACCESS CONTROL
   // =================================================================
   
   return (
@@ -514,111 +537,166 @@ const PartForm = () => {
           <h1 className="text-2xl font-bold text-gray-900">{pageTitle}</h1>
           <p className="text-gray-600">
             {isEditMode 
-              ? 'Update part information and inventory details'
-              : 'Add a new part to your inventory with enhanced duplicate protection'
+              ? `Modify the details for part ${formData.partId || id}` 
+              : 'Create a new part in your inventory'
             }
+            {isReadOnly && (
+              <span className="ml-2 text-amber-600 font-medium">(Read-Only Mode)</span>
+            )}
           </p>
         </div>
         
-        <Link to="/parts" className="btn btn-secondary">
-          Back to Parts
-        </Link>
+        {/* Role Badge - Dashboard Style */}
+        <div className="text-right">
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            {userRole} Access
+          </span>
+          {isAdmin && (
+            <div className="mt-1 text-xs text-gray-500">Full System Access</div>
+          )}
+          {isUser && (
+            <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
+          )}
+          {isReadOnly && (
+            <div className="mt-1 text-xs text-gray-500">View Only Access</div>
+          )}
+        </div>
       </div>
 
-      {/* HYBRID SOLUTION: Category Selection Mode Toggle */}
-      {!isEditMode && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-medium text-blue-900">Category Selection Mode</h3>
-              <p className="text-sm text-blue-700">
-                Choose how you want to select the category for this part
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={toggleSelectionMode}
-              className="btn btn-outline"
-            >
-              {showFamilyFirst ? 'Switch to Category First' : 'Switch to Family First'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Form */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+      {/* Form Container */}
+      <div className="bg-white shadow-lg rounded-lg border border-gray-200">
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           
-          {/* Basic Information Section */}
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Basic Information
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Part ID with Duplicate Validation */}
-              <div>
-                <label htmlFor="partId" className="block text-sm font-medium text-gray-700 mb-1">
-                  Part ID *
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    id="partId"
-                    name="partId"
-                    value={formData.partId}
-                    onChange={handleInputChange}
-                    placeholder="e.g., BH001"
-                    className={`input pr-10 ${errors.partId ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                    disabled={isEditMode}
-                  />
-                  {/* Availability Indicator */}
-                  {!isEditMode && formData.partId.trim().length >= 2 && (
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                      {allParts && allParts.find(part => 
-                        part.partId.toLowerCase() === formData.partId.toLowerCase().trim()
-                      ) ? (
-                        <span className="text-red-500" title="Part ID already exists">❌</span>
-                      ) : (
-                        <span className="text-green-500" title="Part ID available">✅</span>
-                      )}
-                    </div>
-                  )}
+          {/* HYBRID SOLUTION: Family/Category Selection */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Family Selector (Optional Helper) */}
+            <div>
+              <label htmlFor="selectedFamily" className="block text-sm font-medium text-gray-700 mb-1">
+                Family <span className="text-gray-500">(Optional Filter)</span>
+              </label>
+              <select
+                id="selectedFamily"
+                name="selectedFamily"
+                value={selectedFamily}
+                onChange={handleInputChange}
+                disabled={!canEditField('category')}
+                className={`input ${!canEditField('category') ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+              >
+                <option value="">All Families</option>
+                {availableFamilies.map(family => (
+                  <option key={family} value={family}>{family}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Category Input/Dropdown - ACCESS CONTROLLED */}
+            <div>
+              <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
+                Category <span className="text-red-500">*</span>
+                {!canEditField('category') && <span className="text-amber-600 ml-2">(Read-Only)</span>}
+              </label>
+              {canEditField('category') ? (
+                <select
+                  id="category"
+                  name="category"
+                  value={formData.category}
+                  onChange={handleInputChange}
+                  onBlur={handleBlur}
+                  required
+                  className={`input ${errors.category ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                >
+                  <option value="">Select a category...</option>
+                  {categoriesInSelectedFamily.map(category => (
+                    <option key={category} value={category}>{category}</option>
+                  ))}
+                </select>
+              ) : (
+                <div className="input bg-gray-100 text-gray-700">
+                  {formData.category || 'No category selected'}
                 </div>
-                {errors.partId && (
-                  <div className="mt-1">
-                    <p className="text-sm text-red-600">{errors.partId}</p>
-                    {/* Alternative Part ID Suggestions */}
-                    {errors.partId.includes('already exists') && (
-                      <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
-                        <p className="text-sm text-yellow-800 font-medium mb-2">Try these available alternatives:</p>
-                        <div className="flex flex-wrap gap-2">
-                          {getAlternativePartIds(formData.partId).map(suggestion => (
-                            <button
-                              key={suggestion}
-                              type="button"
-                              onClick={() => setFormData(prev => ({ ...prev, partId: suggestion }))}
-                              className="inline-flex items-center px-3 py-1 border border-yellow-300 rounded-full text-sm text-yellow-800 bg-yellow-100 hover:bg-yellow-200 transition-colors"
-                            >
-                              {suggestion}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+              )}
+              {errors.category && (
+                <p className="mt-1 text-sm text-red-600">{errors.category}</p>
+              )}
+              {displayFamily && (
+                <p className="mt-1 text-sm text-green-600">
+                  Family: <strong>{displayFamily}</strong>
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Basic Information */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            {/* Part ID - ACCESS CONTROLLED */}
+            <div>
+              <label htmlFor="partId" className="block text-sm font-medium text-gray-700 mb-1">
+                Part ID <span className="text-red-500">*</span>
+                {isEditMode && <span className="text-gray-500 ml-2">(Cannot be changed)</span>}
+                {!canEditField('partId') && !isEditMode && <span className="text-amber-600 ml-2">(Read-Only)</span>}
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  id="partId"
+                  name="partId"
+                  value={formData.partId}
+                  onChange={handleInputChange}
+                  onBlur={handleBlur}
+                  placeholder={canEditField('partId') ? "e.g., BRAKE-PAD-001" : "Not editable"}
+                  required
+                  className={`input ${errors.partId ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''} ${!canEditField('partId') ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                  disabled={isEditMode || !canEditField('partId')}
+                />
+                {/* Availability Indicator - Only show if field is editable */}
+                {!isEditMode && canEditField('partId') && formData.partId.trim().length >= 2 && (
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                    {allParts && allParts.find(part => 
+                      part.partId.toLowerCase() === formData.partId.toLowerCase().trim()
+                    ) ? (
+                      <span className="text-red-500" title="Part ID already exists">❌</span>
+                    ) : (
+                      <span className="text-green-500" title="Part ID available">✅</span>
                     )}
                   </div>
                 )}
-                {!isEditMode && !errors.partId && formData.partId.trim().length >= 2 && (
-                  <p className="mt-1 text-sm text-green-600">✅ Part ID available</p>
-                )}
               </div>
+              {errors.partId && (
+                <div className="mt-1">
+                  <p className="text-sm text-red-600">{errors.partId}</p>
+                  {/* Alternative Part ID Suggestions - Only show if editable */}
+                  {canEditField('partId') && errors.partId.includes('already exists') && (
+                    <div className="mt-2 p-3 bg-yellow-50 border border-yellow-200 rounded-md">
+                      <p className="text-sm text-yellow-800 font-medium mb-2">Try these available alternatives:</p>
+                      <div className="flex flex-wrap gap-2">
+                        {getAlternativePartIds(formData.partId).map(suggestion => (
+                          <button
+                            key={suggestion}
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, partId: suggestion }))}
+                            className="inline-flex items-center px-3 py-1 border border-yellow-300 rounded-full text-sm text-yellow-800 bg-yellow-100 hover:bg-yellow-200 transition-colors"
+                          >
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {!isEditMode && !errors.partId && canEditField('partId') && formData.partId.trim().length >= 2 && (
+                <p className="mt-1 text-sm text-green-600">Part ID available</p>
+              )}
+            </div>
 
-              {/* Status */}
-              <div>
-                <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
-                  Status
-                </label>
+            {/* Status - ACCESS CONTROLLED (Admin Only) */}
+            <div>
+              <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">
+                Status
+                {!canEditField('status') && <span className="text-amber-600 ml-2">(Admin Only)</span>}
+              </label>
+              {canEditField('status') ? (
                 <select
                   id="status"
                   name="status"
@@ -630,415 +708,285 @@ const PartForm = () => {
                   <option value="Obsolete">Obsolete</option>
                   <option value="Disposed">Disposed</option>
                 </select>
-              </div>
-
-              {/* Description - Full Width */}
-              <div className="md:col-span-2">
-                <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
-                  Description *
-                </label>
-                <textarea
-                  id="description"
-                  name="description"
-                  value={formData.description}
-                  onChange={handleInputChange}
-                  rows={3}
-                  placeholder="Detailed description of the part..."
-                  className={`input ${errors.description ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                />
-                {errors.description && (
-                  <p className="mt-1 text-sm text-red-600">{errors.description}</p>
-                )}
-              </div>
+              ) : (
+                <div className="input bg-gray-100 text-gray-700">
+                  {formData.status}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* HYBRID SOLUTION: Enhanced Category Selection Section */}
+          {/* Description - ACCESS CONTROLLED */}
           <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Category & Family Selection
-            </h3>
-            
-            {showFamilyFirst ? (
-              /* Family-First Selection Mode */
-              <div className="space-y-4">
-                {/* Family Selection */}
-                <div>
-                  <label htmlFor="family" className="block text-sm font-medium text-gray-700 mb-1">
-                    1. Select Family First
-                  </label>
-                  <select
-                    id="family"
-                    value={selectedFamily}
-                    onChange={handleFamilyChange}
-                    className="input"
-                  >
-                    <option value="">Select a family...</option>
-                    {availableFamilies.map(family => (
-                      <option key={family} value={family}>{family}</option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-sm text-gray-500">
-                    Choose the automotive system family first to filter categories
-                  </p>
-                </div>
-
-                {/* Category Selection (Filtered) */}
-                <div>
-                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
-                    2. Select Category *
-                    {selectedFamily && (
-                      <span className="text-blue-600 ml-2">
-                        (from {selectedFamily} family)
-                      </span>
-                    )}
-                  </label>
-                  <select
-                    id="category"
-                    name="category"
-                    value={formData.category}
-                    onChange={handleCategoryChange}
-                    className={`input ${errors.category ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                    disabled={!selectedFamily}
-                  >
-                    <option value="">
-                      {selectedFamily ? 'Select a category...' : 'Please select a family first'}
-                    </option>
-                    {categoriesInSelectedFamily.map(category => (
-                      <option key={category} value={category}>{category}</option>
-                    ))}
-                  </select>
-                  {!selectedFamily && (
-                    <p className="mt-1 text-sm text-gray-500">
-                      Select a family above to see available categories
-                    </p>
-                  )}
-                  {errors.category && (
-                    <p className="mt-1 text-sm text-red-600">{errors.category}</p>
-                  )}
-                </div>
-              </div>
+            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+              Description <span className="text-red-500">*</span>
+              {!canEditField('description') && <span className="text-amber-600 ml-2">(Read-Only)</span>}
+            </label>
+            {canEditField('description') ? (
+              <input
+                type="text"
+                id="description"
+                name="description"
+                value={formData.description}
+                onChange={handleInputChange}
+                onBlur={handleBlur}
+                placeholder="Brief description of the part"
+                required
+                className={`input ${errors.description ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+              />
             ) : (
-              /* Category-First Selection Mode */
-              <div className="space-y-4">
-                {/* Category Selection */}
-                <div>
-                  <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
-                    Category *
-                  </label>
-                  <select
-                    id="category"
-                    name="category"
-                    value={formData.category}
-                    onChange={handleCategoryChange}
-                    className={`input ${errors.category ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  >
-                    <option value="">Select a category...</option>
-                    {categoryNames.map(category => (
-                      <option key={category} value={category}>{category}</option>
-                    ))}
-                  </select>
-                  {errors.category && (
-                    <p className="mt-1 text-sm text-red-600">{errors.category}</p>
-                  )}
-                </div>
-
-                {/* Optional Family Filter */}
-                {availableFamilies.length > 0 && (
-                  <div>
-                    <label htmlFor="familyFilter" className="block text-sm font-medium text-gray-700 mb-1">
-                      Filter by Family (Optional)
-                    </label>
-                    <select
-                      id="familyFilter"
-                      value={selectedFamily}
-                      onChange={handleFamilyChange}
-                      className="input"
-                    >
-                      <option value="">Show all categories</option>
-                      {availableFamilies.map(family => (
-                        <option key={family} value={family}>{family}</option>
-                      ))}
-                    </select>
-                    <p className="mt-1 text-sm text-gray-500">
-                      Optional: Filter categories by automotive system family
-                    </p>
-                  </div>
-                )}
+              <div className="input bg-gray-100 text-gray-700">
+                {formData.description || 'No description provided'}
               </div>
             )}
-
-            {/* HYBRID SOLUTION: Family Display */}
-            {displayFamily && (
-              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
-                <div className="flex items-center">
-                  <div className="text-green-600 mr-2">✓</div>
-                  <div>
-                    <span className="text-sm font-medium text-green-800">
-                      Family: {displayFamily}
-                    </span>
-                    <p className="text-sm text-green-700">
-                      Category "{formData.category}" belongs to the {displayFamily} family
-                    </p>
-                  </div>
-                </div>
-              </div>
+            {errors.description && (
+              <p className="mt-1 text-sm text-red-600">{errors.description}</p>
             )}
           </div>
 
-          {/* Pricing Section */}
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Pricing Information
-            </h3>
+          {/* Pricing Information */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* Unit Cost */}
-              <div>
-                <label htmlFor="unitCost" className="block text-sm font-medium text-gray-700 mb-1">
-                  Unit Cost *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
-                  <input
-                    type="text"
-                    id="unitCost"
-                    name="unitCost"
-                    value={formData.unitCost}
-                    onChange={handleInputChange}
-                    placeholder="0.00"
-                    className={`input pl-8 ${errors.unitCost ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                    pattern="[0-9]*\.?[0-9]*"
-                    inputMode="decimal"
-                  />
+            {/* Unit Cost - ACCESS CONTROLLED (Admin Only) */}
+            <div>
+              <label htmlFor="unitCost" className="block text-sm font-medium text-gray-700 mb-1">
+                Unit Cost ($)
+                {!canEditField('unitCost') && <span className="text-amber-600 ml-2">(Admin Only)</span>}
+              </label>
+              {canEditField('unitCost') ? (
+                <input
+                  type="number"
+                  id="unitCost"
+                  name="unitCost"
+                  value={formData.unitCost}
+                  onChange={handleInputChange}
+                  onBlur={handleBlur}
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  className={`input ${errors.unitCost ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                />
+              ) : (
+                <div className="input bg-gray-100 text-gray-700">
+                  ${formData.unitCost || '0.00'}
                 </div>
-                {errors.unitCost && (
-                  <p className="mt-1 text-sm text-red-600">{errors.unitCost}</p>
-                )}
-              </div>
+              )}
+              {errors.unitCost && (
+                <p className="mt-1 text-sm text-red-600">{errors.unitCost}</p>
+              )}
+            </div>
 
-              {/* Unit Price */}
-              <div>
-                <label htmlFor="unitPrice" className="block text-sm font-medium text-gray-700 mb-1">
-                  Unit Price *
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
-                  <input
-                    type="text"
-                    id="unitPrice"
-                    name="unitPrice"
-                    value={formData.unitPrice}
-                    onChange={handleInputChange}
-                    placeholder="0.00"
-                    className={`input pl-8 ${errors.unitPrice ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                    pattern="[0-9]*\.?[0-9]*"
-                    inputMode="decimal"
-                  />
+            {/* Unit Price - ACCESS CONTROLLED */}
+            <div>
+              <label htmlFor="unitPrice" className="block text-sm font-medium text-gray-700 mb-1">
+                Unit Price ($)
+                {!canEditField('unitPrice') && <span className="text-amber-600 ml-2">(Read-Only)</span>}
+              </label>
+              {canEditField('unitPrice') ? (
+                <input
+                  type="number"
+                  id="unitPrice"
+                  name="unitPrice"
+                  value={formData.unitPrice}
+                  onChange={handleInputChange}
+                  onBlur={handleBlur}
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  className={`input ${errors.unitPrice ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                />
+              ) : (
+                <div className="input bg-gray-100 text-gray-700">
+                  ${formData.unitPrice || '0.00'}
                 </div>
-                {errors.unitPrice && (
-                  <p className="mt-1 text-sm text-red-600">{errors.unitPrice}</p>
-                )}
-              </div>
+              )}
+              {errors.unitPrice && (
+                <p className="mt-1 text-sm text-red-600">{errors.unitPrice}</p>
+              )}
+            </div>
 
-              {/* Margin Calculation */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Profit Margin
-                </label>
-                <div className="input bg-gray-50 text-gray-700 font-medium">
-                  {calculateMargin()}%
-                </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  Calculated automatically
-                </p>
+            {/* Profit Margin (Calculated) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Profit Margin
+              </label>
+              <div className="input bg-gray-50 text-gray-700">
+                {formData.unitCost && formData.unitPrice ? `${calculateMargin()}%` : 'N/A'}
               </div>
+              <p className="mt-1 text-sm text-gray-500">Calculated automatically</p>
             </div>
           </div>
 
-          {/* Inventory Section */}
-          <div>
-            <h3 className="text-lg font-medium text-gray-900 mb-4">
-              Inventory Information
-            </h3>
+          {/* Inventory Information */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Inventory On Hand - PROTECTED IN EDIT MODE */}
-              <div>
-                <label htmlFor="inventoryOnHand" className="block text-sm font-medium text-gray-700 mb-1">
-                  {isEditMode ? 'Current Inventory *' : 'Initial Quantity'} {!isEditMode && <span className="text-blue-600">(Optional)</span>}
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    id="inventoryOnHand"
-                    name="inventoryOnHand"
-                    value={formData.inventoryOnHand}
-                    onChange={handleInputChange}
-                    min="0"
-                    step="1"
-                    disabled={isEditMode}
-                    className={`input ${
-                      isEditMode ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : ''
-                    } ${errors.inventoryOnHand ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  />
-                  {isEditMode && (
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                      <span className="text-gray-400 text-sm">🔒</span>
-                    </div>
-                  )}
+            {/* Inventory On Hand - ACCESS CONTROLLED (Create Only) */}
+            <div>
+              <label htmlFor="inventoryOnHand" className="block text-sm font-medium text-gray-700 mb-1">
+                Inventory On Hand
+                {isEditMode && <span className="text-gray-500 ml-2">(Set via transactions)</span>}
+                {!canEditField('inventoryOnHand') && !isEditMode && <span className="text-amber-600 ml-2">(Read-Only)</span>}
+              </label>
+              {canEditField('inventoryOnHand') && !isEditMode ? (
+                <input
+                  type="number"
+                  id="inventoryOnHand"
+                  name="inventoryOnHand"
+                  value={formData.inventoryOnHand}
+                  onChange={handleInputChange}
+                  min="0"
+                  step="1"
+                  placeholder="0"
+                  className="input"
+                />
+              ) : (
+                <div className="input bg-gray-100 text-gray-700">
+                  {formData.inventoryOnHand} units
                 </div>
-                
-                {/* Dynamic help text based on mode */}
-                {isEditMode ? (
-                  <div className="mt-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <div className="flex items-start space-x-2">
-                      <span className="text-amber-600 mt-0.5">⚠️</span>
-                      <div>
-                        <p className="text-sm font-medium text-amber-800">
-                          Inventory cannot be changed here
-                        </p>
-                        <p className="text-sm text-amber-700 mt-1">
-                          To modify inventory levels, use the transaction system to maintain proper audit trails.
-                        </p>
-                        <div className="mt-2 flex space-x-2">
-                          <Link
-                            to={`/transactions/new?partId=${formData.partId}`}
-                            className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-amber-800 bg-amber-100 border border-amber-300 rounded hover:bg-amber-200 transition-colors"
-                          >
-                            📦 Log Transaction
-                          </Link>
-                          <Link
-                            to={`/parts/${id}`}
-                            className="inline-flex items-center px-3 py-1.5 text-xs font-medium text-amber-800 bg-amber-100 border border-amber-300 rounded hover:bg-amber-200 transition-colors"
-                          >
-                            📊 View History
-                          </Link>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    {errors.inventoryOnHand && (
-                      <p className="mt-1 text-sm text-red-600">{errors.inventoryOnHand}</p>
-                    )}
-                    <p className="mt-1 text-xs text-gray-500">
-                      Set initial inventory quantity. This will create an initial stock transaction.
-                    </p>
-                  </>
-                )}
-              </div>
-
-              {/* Total Value - Enhanced for edit mode */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {isEditMode ? 'Current Inventory Value' : 'Initial Inventory Value'}
-                </label>
-                <div className="input bg-gray-50 text-gray-700 font-medium">
-                  ${calculateValue()}
-                </div>
-                <p className="mt-1 text-xs text-gray-500">
-                  {isEditMode ? 'Current quantity × Unit cost' : 'Initial quantity × Unit cost'}
+              )}
+              {isEditMode && (
+                <p className="mt-1 text-sm text-gray-500">
+                  Use Transactions to adjust inventory levels
                 </p>
+              )}
+            </div>
+
+            {/* Total Value (Calculated) */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Total Value (Cost)
+              </label>
+              <div className="input bg-gray-50 text-gray-700">
+                ${calculateValue()}
               </div>
+              <p className="mt-1 text-sm text-gray-500">Quantity × Unit Cost</p>
             </div>
           </div>
 
-          {/* Initial Stock Transaction Details */}
-          {!isEditMode && showTransactionDetails && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
-              <h3 className="text-lg font-medium text-blue-900 mb-4">
-                Initial Stock Transaction
-              </h3>
-              <p className="text-sm text-blue-700 mb-4">
-                Since you're adding {formData.inventoryOnHand} units, we'll create an initial stock transaction for audit tracking.
-              </p>
+
+
+          {/* Notes - ACCESS CONTROLLED */}
+          <div>
+            <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
+              Notes
+              {!canEditField('notes') && <span className="text-amber-600 ml-2">(Read-Only)</span>}
+            </label>
+            {canEditField('notes') ? (
+              <textarea
+                id="notes"
+                name="notes"
+                value={formData.notes}
+                onChange={handleInputChange}
+                rows={3}
+                placeholder="Additional notes or specifications..."
+                className="input"
+              />
+            ) : (
+              <div className="input bg-gray-100 text-gray-700 min-h-[80px] whitespace-pre-wrap">
+                {formData.notes || 'No notes provided'}
+              </div>
+            )}
+          </div>
+
+          {/* Transaction Details (Create Mode Only) - ACCESS CONTROLLED */}
+          {showTransactionDetails && canPerformAction('automaticTransaction') && (
+            <div className="border-t border-gray-200 pt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-medium text-blue-900">Initial Stock Transaction</h3>
+                <span className="text-sm text-blue-600">Auto-created for audit trail</span>
+              </div>
               
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Receipt Date */}
-                <div>
-                  <label htmlFor="receiptDate" className="block text-sm font-medium text-blue-700 mb-1">
-                    Receipt Date *
-                  </label>
-                  <input
-                    type="date"
-                    id="receiptDate"
-                    name="receiptDate"
-                    value={transactionData.receiptDate}
-                    onChange={handleTransactionChange}
-                    className={`input ${errors.receiptDate ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                  />
-                  {errors.receiptDate && (
-                    <p className="mt-1 text-sm text-red-600">{errors.receiptDate}</p>
-                  )}
-                </div>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800 mb-4">
+                  Since you're adding initial inventory, a transaction record will be created automatically for audit purposes.
+                </p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Receipt Date */}
+                  <div>
+                    <label htmlFor="receiptDate" className="block text-sm font-medium text-blue-700 mb-1">
+                      Receipt Date <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="date"
+                      id="receiptDate"
+                      name="receiptDate"
+                      value={transactionData.receiptDate}
+                      onChange={handleTransactionChange}
+                      required
+                      className={`input ${errors.receiptDate ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
+                    />
+                    {errors.receiptDate && (
+                      <p className="mt-1 text-sm text-red-600">{errors.receiptDate}</p>
+                    )}
+                  </div>
 
-                {/* Supplier */}
-                <div>
-                  <label htmlFor="supplier" className="block text-sm font-medium text-blue-700 mb-1">
-                    Supplier <span className="text-blue-500">(Optional)</span>
-                  </label>
-                  <input
-                    type="text"
-                    id="supplier"
-                    name="supplier"
-                    value={transactionData.supplier}
-                    onChange={handleTransactionChange}
-                    placeholder="e.g., Parts Warehouse Inc"
-                    className="input"
-                  />
-                </div>
+                  {/* Supplier */}
+                  <div>
+                    <label htmlFor="transactionSupplier" className="block text-sm font-medium text-blue-700 mb-1">
+                      Supplier <span className="text-blue-500">(Optional)</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="transactionSupplier"
+                      name="supplier"
+                      value={transactionData.supplier}
+                      onChange={handleTransactionChange}
+                      placeholder="e.g., Parts Warehouse Inc"
+                      className="input"
+                    />
+                  </div>
 
-                {/* Transaction Type (Read-only) */}
-                <div>
-                  <label className="block text-sm font-medium text-blue-700 mb-1">
-                    Transaction Type
-                  </label>
-                  <div className="input bg-blue-100 text-blue-800 font-medium">
-                    In (Received)
+                  {/* Transaction Type (Read-only) */}
+                  <div>
+                    <label className="block text-sm font-medium text-blue-700 mb-1">
+                      Transaction Type
+                    </label>
+                    <div className="input bg-blue-100 text-blue-800 font-medium">
+                      In (Received)
+                    </div>
+                  </div>
+
+                  {/* Notes */}
+                  <div className="md:col-span-3">
+                    <label htmlFor="transactionNotes" className="block text-sm font-medium text-blue-700 mb-1">
+                      Transaction Notes <span className="text-blue-500">(Optional)</span>
+                    </label>
+                    <textarea
+                      id="transactionNotes"
+                      name="notes"
+                      value={transactionData.notes}
+                      onChange={handleTransactionChange}
+                      rows={2}
+                      placeholder="e.g., Initial inventory setup, Opening stock count..."
+                      className="input"
+                    />
                   </div>
                 </div>
 
-                {/* Notes */}
-                <div className="md:col-span-3">
-                  <label htmlFor="notes" className="block text-sm font-medium text-blue-700 mb-1">
-                    Notes <span className="text-blue-500">(Optional)</span>
-                  </label>
-                  <textarea
-                    id="notes"
-                    name="notes"
-                    value={transactionData.notes}
-                    onChange={handleTransactionChange}
-                    rows={2}
-                    placeholder="e.g., Initial inventory setup, Opening stock count..."
-                    className="input"
-                  />
-                </div>
-              </div>
-
-              {/* Transaction Summary */}
-              <div className="mt-4 p-3 bg-white rounded border border-blue-200">
-                <h4 className="text-sm font-medium text-blue-900 mb-2">Transaction Summary</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <span className="text-blue-600 font-medium">Part:</span> {formData.partId || 'TBD'}
-                  </div>
-                  <div>
-                    <span className="text-blue-600 font-medium">Quantity:</span> +{formData.inventoryOnHand}
-                  </div>
-                  <div>
-                    <span className="text-blue-600 font-medium">Unit Cost:</span> ${formData.unitCost || '0.00'}
-                  </div>
-                  <div>
-                    <span className="text-blue-600 font-medium">Total Value:</span> ${calculateValue()}
+                {/* Transaction Summary */}
+                <div className="mt-4 p-3 bg-white rounded border border-blue-200">
+                  <h4 className="text-sm font-medium text-blue-900 mb-2">Transaction Summary</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <span className="text-blue-600 font-medium">Part:</span> {formData.partId || 'TBD'}
+                    </div>
+                    <div>
+                      <span className="text-blue-600 font-medium">Quantity:</span> +{formData.inventoryOnHand}
+                    </div>
+                    <div>
+                      <span className="text-blue-600 font-medium">Unit Cost:</span> ${formData.unitCost || '0.00'}
+                    </div>
+                    <div>
+                      <span className="text-blue-600 font-medium">Total Value:</span> ${calculateValue()}
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           )}
 
-          {/* HYBRID SOLUTION: Preview Card */}
+          {/* Preview Card */}
           {(formData.partId || formData.description || formData.category) && (
             <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
               <h4 className="text-sm font-medium text-gray-900 mb-2">Part Preview</h4>
@@ -1068,7 +1016,7 @@ const PartForm = () => {
                 </div>
                 <div>
                   <span className="text-gray-700 font-medium">On Hand:</span> {formData.inventoryOnHand} units
-                  {!isEditMode && formData.inventoryOnHand > 0 && (
+                  {!isEditMode && formData.inventoryOnHand > 0 && canPerformAction('automaticTransaction') && (
                     <span className="text-blue-600 ml-2">(+ transaction will be created)</span>
                   )}
                 </div>
@@ -1076,26 +1024,31 @@ const PartForm = () => {
             </div>
           )}
 
-          {/* Form Actions */}
+          {/* Form Actions - ACCESS CONTROLLED */}
           <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-gray-200">
-            <button
-              type="submit"
-              disabled={saving}
-              className="btn btn-primary flex-1 sm:flex-none sm:px-8"
-            >
-              {saving ? (
-                <>
-                  <LoadingSpinner size="sm" className="mr-2" />
-                  {isEditMode ? 'Updating...' : 'Creating...'}
-                </>
-              ) : (
-                <>
-                  {isEditMode ? 'Update Part' : 'Create Part'}
-                  {!isEditMode && formData.inventoryOnHand > 0 && ' + Transaction'}
-                </>
-              )}
-            </button>
             
+            {/* Primary Action Button */}
+            {(canPerformAction('create') || canPerformAction('update')) && (
+              <button
+                type="submit"
+                disabled={saving}
+                className="btn btn-primary flex-1 sm:flex-none sm:px-8"
+              >
+                {saving ? (
+                  <>
+                    <LoadingSpinner size="sm" className="mr-2" />
+                    {isEditMode ? 'Updating...' : 'Creating...'}
+                  </>
+                ) : (
+                  <>
+                    {isEditMode ? 'Update Part' : 'Create Part'}
+                    {!isEditMode && formData.inventoryOnHand > 0 && canPerformAction('automaticTransaction') && ' + Transaction'}
+                  </>
+                )}
+              </button>
+            )}
+            
+            {/* Cancel Button - Available to all users */}
             <button
               type="button"
               onClick={handleCancel}
@@ -1105,7 +1058,8 @@ const PartForm = () => {
               Cancel
             </button>
 
-            {isEditMode && (
+            {/* View Details Link - Available to all users in edit mode */}
+            {isEditMode && canPerformAction('viewDetails') && (
               <Link
                 to={`/parts/${id}`}
                 className="btn btn-outline flex-1 sm:flex-none sm:px-8 text-center"
@@ -1115,40 +1069,24 @@ const PartForm = () => {
             )}
           </div>
 
-          {/* Required Fields Note & Enhanced Validation Info */}
+          {/* Required Fields Note */}
           <div className="text-sm text-gray-500 pt-4 border-t border-gray-200 space-y-2">
-            <p>* Required fields must be completed before saving</p>
+            {(canPerformAction('create') || canPerformAction('update')) && (
+              <p>* Required fields must be completed before saving</p>
+            )}
             {isEditMode && (
               <p>Part ID cannot be changed after creation to maintain data integrity</p>
             )}
-            {!isEditMode && (
-              <p className="text-blue-600">
-                🔒 Part IDs are automatically checked for uniqueness to prevent duplicates
-              </p>
-            )}
-            {!isEditMode && formData.inventoryOnHand > 0 && (
-              <p className="text-blue-600">
-                📦 An initial stock transaction will be created automatically for audit tracking
-              </p>
-            )}
-            {/* HYBRID SOLUTION: Information note */}
-            <div className="bg-blue-50 border border-blue-200 rounded p-3 mt-4">
-              <h5 className="text-sm font-medium text-blue-900 mb-1">Enhanced Validation Active</h5>
-              <p className="text-sm text-blue-700">
-                • Part IDs are validated for uniqueness across your entire inventory
-              </p>
-              <p className="text-sm text-blue-700">
-                • Categories are validated against the master Categories list
-              </p>
-              <p className="text-sm text-blue-700">
-                • Family information is automatically determined based on your category selection
-              </p>
-              {displayFamily && (
-                <p className="text-sm text-blue-600 mt-1">
-                  Current selection: <strong>{formData.category}</strong> → <strong>{displayFamily}</strong> family
+            
+            {/* Role-based access information */}
+            {isReadOnly && (
+              <div className="bg-amber-50 border border-amber-200 rounded p-3 mt-4">
+                <h5 className="text-sm font-medium text-amber-900 mb-1">Read-Only Access</h5>
+                <p className="text-sm text-amber-700">
+                  You have view-only access to this form. Contact an administrator to request edit permissions.
                 </p>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </form>
       </div>

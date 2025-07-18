@@ -1,12 +1,15 @@
 // =================================================================
-// ENHANCED PARTS TABLE - HYBRID SOLUTION WITH FAMILY SUPPORT
+// ENHANCED PARTS TABLE - HYBRID SOLUTION WITH FAMILY SUPPORT AND ACCESS CONTROL
 // =================================================================
 // HYBRID SOLUTION: Category field is now text with family information
 // Enhanced with family column, family-based filtering, and advanced search
+// ACCESS CONTROL: Implements role-based access points per partstable_access_matrix.md
 
 import React, { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
+import { useAuth } from '../../context/AuthContext'
+import { useRoleAccess } from '../../hooks/useRoleAccess'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import { exportPartsToCSV } from '../../utils/csvExport'
 
@@ -14,10 +17,25 @@ import { exportPartsToCSV } from '../../utils/csvExport'
 import { useParts, useCategories } from '../../hooks/useSharePoint'
 
 // =================================================================
-// PARTS TABLE COMPONENT - HYBRID SOLUTION ENHANCED
+// PARTS TABLE COMPONENT - HYBRID SOLUTION ENHANCED WITH ACCESS CONTROL
 // =================================================================
 const PartsTable = () => {
   const { success, error, info } = useToast()
+  const { userRole } = useAuth()
+  
+  // ACCESS CONTROL: Get role-based permissions
+  const {
+    canCreate,
+    canEdit,
+    canDelete,
+    canView,
+    canExport,
+    canBulkSelect,
+    canBulkDelete,
+    isAdmin,
+    isUser,
+    isReadOnly
+  } = useRoleAccess('ReadOnly')
   
   // =================================================================
   // SHAREPOINT HOOKS - HYBRID SOLUTION ENHANCED
@@ -164,7 +182,10 @@ const PartsTable = () => {
     }))
   }
 
+  // ACCESS CONTROL: Select all only available for users who can bulk select
   const handleSelectAll = (e) => {
+    if (!canBulkSelect) return
+    
     if (e.target.checked) {
       setSelectedParts(filteredParts.map(part => part.id))
     } else {
@@ -172,7 +193,10 @@ const PartsTable = () => {
     }
   }
 
+  // ACCESS CONTROL: Individual selection only available for users who can bulk select
   const handleSelectPart = (partId) => {
+    if (!canBulkSelect) return
+    
     setSelectedParts(prev => 
       prev.includes(partId) 
         ? prev.filter(id => id !== partId)
@@ -189,7 +213,10 @@ const PartsTable = () => {
     }
   }
 
+  // ACCESS CONTROL: Delete operations only available for admin
   const handleDeleteSelected = async () => {
+    if (!canBulkDelete) return
+    
     try {
       const result = await deleteMultipleParts(selectedParts)
       
@@ -213,7 +240,7 @@ const PartsTable = () => {
   const handleExportParts = () => {
     try {
       if (filteredParts.length === 0) {
-        warning('No parts to export')
+        info('No parts to export')
         return
       }
       
@@ -322,12 +349,15 @@ const PartsTable = () => {
             >
               🔄 Retry Connection
             </button>
-            <Link
-              to="/parts/new"
-              className="btn btn-secondary"
-            >
-              Add Part Anyway
-            </Link>
+            {/* ACCESS CONTROL: Add part link only for users who can create */}
+            {canCreate && (
+              <Link
+                to="/parts/new"
+                className="btn btn-secondary"
+              >
+                Add Part Anyway
+              </Link>
+            )}
           </div>
         </div>
       </div>
@@ -339,14 +369,25 @@ const PartsTable = () => {
   // =================================================================
   return (
     <div className="space-y-6">
-      {/* Header Section */}
+      {/* Header with Role Badge */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Parts Inventory</h1>
+          <div className="flex items-center space-x-3 mb-2">
+            <h1 className="text-2xl font-bold text-gray-900">Parts Inventory</h1>
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              {userRole} Access
+            </span>
+          </div>
           <p className="text-gray-600">
             Showing {filteredParts.length} of {parts.length} parts
             {familyFilter && ` in ${familyFilter} family`}
           </p>
+          {/* ACCESS CONTROL: Role-specific access info */}
+          <div className="mt-1 text-xs text-gray-500">
+            {isAdmin && "Full system access - can create, edit, and delete parts"}
+            {isUser && "Standard access - can create and edit parts"}
+            {isReadOnly && "View-only access - can search, filter, and export data"}
+          </div>
         </div>
         
         <div className="flex flex-col sm:flex-row gap-3">
@@ -354,19 +395,25 @@ const PartsTable = () => {
             onClick={handleRefreshData}
             className="btn btn-outline"
           >
-            🔄 Refresh
+            Refresh
           </button>
           
-          <button
-            onClick={handleExportParts}
-            className="btn btn-secondary"
-          >
-            📊 Export
-          </button>
+          {/* ACCESS CONTROL: Export button available to all users */}
+          {canExport && (
+            <button
+              onClick={handleExportParts}
+              className="btn btn-secondary"
+            >
+              Export
+            </button>
+          )}
           
-          <Link to="/parts/new" className="btn btn-primary">
-            ➕ Add New Part
-          </Link>
+          {/* ACCESS CONTROL: Add New Part button only for Admin/User */}
+          {canCreate && (
+            <Link to="/parts/new" className="btn btn-primary">
+              Add New Part
+            </Link>
+          )}
         </div>
       </div>
 
@@ -416,9 +463,9 @@ const PartsTable = () => {
           </div>
         </div>
 
-        {/* Enhanced Filters Section */}
+        {/* Enhanced Filters Section - ALL USERS CAN ACCESS */}
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-          {/* Search */}
+          {/* Search - ALL USERS */}
           <div className="md:col-span-2">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Search Parts
@@ -432,7 +479,7 @@ const PartsTable = () => {
             />
           </div>
 
-          {/* HYBRID SOLUTION: Family Filter */}
+          {/* HYBRID SOLUTION: Family Filter - ALL USERS */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Family
@@ -449,7 +496,7 @@ const PartsTable = () => {
             </select>
           </div>
 
-          {/* Category Filter - HYBRID SOLUTION: Filtered by family */}
+          {/* Category Filter - ALL USERS */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Category
@@ -468,7 +515,7 @@ const PartsTable = () => {
             </select>
           </div>
 
-          {/* Status Filter */}
+          {/* Status Filter - ALL USERS */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Status
@@ -485,7 +532,7 @@ const PartsTable = () => {
             </select>
           </div>
 
-          {/* Inventory Filter */}
+          {/* Inventory Filter - ALL USERS */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Stock Level
@@ -503,7 +550,7 @@ const PartsTable = () => {
           </div>
         </div>
 
-        {/* Filter Actions */}
+        {/* Filter Actions - ALL USERS */}
         <div className="mt-4 flex items-center justify-between">
           <div className="text-sm text-gray-600">
             {(searchTerm || familyFilter || categoryFilter || statusFilter || inventoryFilter) && (
@@ -521,26 +568,53 @@ const PartsTable = () => {
         </div>
       </div>
 
-      {/* Bulk Actions */}
-      {selectedParts.length > 0 && (
+      {/* ACCESS CONTROL: Bulk Actions - Only show if user has selection permissions */}
+      {canBulkSelect && selectedParts.length > 0 && (
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
             <span className="text-blue-800 font-medium">
               {selectedParts.length} part(s) selected
             </span>
             <div className="flex gap-2">
-              <button
-                onClick={() => setShowDeleteModal(true)}
-                className="btn btn-danger"
-              >
-                🗑️ Delete Selected
-              </button>
+              {/* ACCESS CONTROL: Bulk Delete only for Admin */}
+              {canBulkDelete && (
+                <button
+                  onClick={() => setShowDeleteModal(true)}
+                  className="btn btn-danger"
+                >
+                  🗑️ Delete Selected
+                </button>
+              )}
+              {/* ACCESS CONTROL: Export available to all users with selection */}
+              {canExport && (
+                <button
+                  onClick={handleExportParts}
+                  className="btn btn-secondary"
+                >
+                  📊 Export Selected
+                </button>
+              )}
               <button
                 onClick={() => setSelectedParts([])}
                 className="btn btn-secondary"
               >
                 Clear Selection
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ACCESS CONTROL: ReadOnly users get info about limited access */}
+      {isReadOnly && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <div className="text-amber-600">ℹ️</div>
+            <div>
+              <p className="text-amber-800 font-medium text-sm">View-Only Access</p>
+              <p className="text-amber-700 text-sm">
+                You can search, filter, and export data. Contact your administrator for edit permissions.
+              </p>
             </div>
           </div>
         </div>
@@ -567,20 +641,23 @@ const PartsTable = () => {
                 <table className="w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-6 py-3 text-left">
-                        <input
-                          type="checkbox"
-                          checked={familyParts.every(part => selectedParts.includes(part.id))}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedParts(prev => [...new Set([...prev, ...familyParts.map(p => p.id)])])
-                            } else {
-                              setSelectedParts(prev => prev.filter(id => !familyParts.map(p => p.id).includes(id)))
-                            }
-                          }}
-                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                      </th>
+                      {/* ACCESS CONTROL: Selection column only for Admin/User */}
+                      {canBulkSelect && (
+                        <th className="px-6 py-3 text-left">
+                          <input
+                            type="checkbox"
+                            checked={familyParts.every(part => selectedParts.includes(part.id))}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedParts(prev => [...new Set([...prev, ...familyParts.map(p => p.id)])])
+                              } else {
+                                setSelectedParts(prev => prev.filter(id => !familyParts.map(p => p.id).includes(id)))
+                              }
+                            }}
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        </th>
+                      )}
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                         Part ID
                       </th>
@@ -612,6 +689,9 @@ const PartsTable = () => {
                         isSelected={selectedParts.includes(part.id)}
                         onSelect={handleSelectPart}
                         showFamily={false}
+                        canBulkSelect={canBulkSelect}
+                        canEdit={canEdit}
+                        canView={canView}
                       />
                     ))}
                   </tbody>
@@ -633,23 +713,29 @@ const PartsTable = () => {
                   : 'Get started by adding your first part.'
                 }
               </p>
-              <Link to="/parts/new" className="btn btn-primary">
-                Add First Part
-              </Link>
+              {/* ACCESS CONTROL: Add part link only for Admin/User */}
+              {canCreate && (
+                <Link to="/parts/new" className="btn btn-primary">
+                  Add First Part
+                </Link>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-3 text-left">
-                      <input
-                        type="checkbox"
-                        checked={selectedParts.length === filteredParts.length && filteredParts.length > 0}
-                        onChange={handleSelectAll}
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                    </th>
+                    {/* ACCESS CONTROL: Selection column only for Admin/User */}
+                    {canBulkSelect && (
+                      <th className="px-6 py-3 text-left">
+                        <input
+                          type="checkbox"
+                          checked={selectedParts.length === filteredParts.length && filteredParts.length > 0}
+                          onChange={handleSelectAll}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </th>
+                    )}
                     
                     <th
                       className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
@@ -712,6 +798,9 @@ const PartsTable = () => {
                       isSelected={selectedParts.includes(part.id)}
                       onSelect={handleSelectPart}
                       showFamily={true}
+                      canBulkSelect={canBulkSelect}
+                      canEdit={canEdit}
+                      canView={canView}
                     />
                   ))}
                 </tbody>
@@ -721,8 +810,8 @@ const PartsTable = () => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
-      {showDeleteModal && (
+      {/* ACCESS CONTROL: Delete Confirmation Modal - Only for Admin */}
+      {canBulkDelete && showDeleteModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3 text-center">
@@ -763,9 +852,9 @@ const PartsTable = () => {
 }
 
 // =================================================================
-// PART TABLE ROW COMPONENT - HYBRID SOLUTION
+// PART TABLE ROW COMPONENT - HYBRID SOLUTION WITH ACCESS CONTROL
 // =================================================================
-const PartTableRow = ({ part, isSelected, onSelect, showFamily = true }) => {
+const PartTableRow = ({ part, isSelected, onSelect, showFamily = true, canBulkSelect, canEdit, canView }) => {
   // Move function definitions BEFORE they are used
   const getInventoryStatus = (quantity) => {
     if (quantity === 0) return { text: 'Out of Stock', color: 'bg-red-100 text-red-800', icon: '🔴' }
@@ -787,22 +876,30 @@ const PartTableRow = ({ part, isSelected, onSelect, showFamily = true }) => {
     <tr
       className={`hover:bg-gray-50 transition-colors duration-150 ${isSelected ? 'bg-blue-50' : ''}`}
     >
-      <td className="px-6 py-4 whitespace-nowrap">
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={() => onSelect(part.id)}
-          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-        />
-      </td>
+      {/* ACCESS CONTROL: Selection column only for Admin/User */}
+      {canBulkSelect && (
+        <td className="px-6 py-4 whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onSelect(part.id)}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+          />
+        </td>
+      )}
       
       <td className="px-6 py-4 whitespace-nowrap">
-        <Link
-          to={`/parts/${part.id}`}
-          className="text-blue-600 hover:text-blue-800 font-medium transition-colors"
-        >
-          {part.partId}
-        </Link>
+        {/* ACCESS CONTROL: Part ID link available to all users */}
+        {canView ? (
+          <Link
+            to={`/parts/${part.id}`}
+            className="text-blue-600 hover:text-blue-800 font-medium transition-colors"
+          >
+            {part.partId}
+          </Link>
+        ) : (
+          <span className="font-medium text-gray-900">{part.partId}</span>
+        )}
       </td>
       
       <td className="px-6 py-4">
@@ -861,27 +958,38 @@ const PartTableRow = ({ part, isSelected, onSelect, showFamily = true }) => {
       
       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
         <div className="flex space-x-2">
-          <Link
-            to={`/parts/${part.id}`}
-            className="text-blue-600 hover:text-blue-800 p-1 rounded transition-colors"
-            title="View Details"
-          >
-            👁️
-          </Link>
-          <Link
-            to={`/parts/${part.id}/edit`}
-            className="text-yellow-600 hover:text-yellow-800 p-1 rounded transition-colors"
-            title="Edit Part"
-          >
-            ✏️
-          </Link>
-          <Link
-            to={`/transactions/new?partId=${part.partId}`}
-            className="text-green-600 hover:text-green-800 p-1 rounded transition-colors"
-            title="Log Transaction"
-          >
-            📦
-          </Link>
+          {/* ACCESS CONTROL: View Details link available to all users */}
+          {canView && (
+            <Link
+              to={`/parts/${part.id}`}
+              className="text-blue-600 hover:text-blue-800 p-1 rounded transition-colors"
+              title="View Details"
+            >
+              👁️
+            </Link>
+          )}
+          
+          {/* ACCESS CONTROL: Edit button only for Admin/User */}
+          {canEdit && (
+            <Link
+              to={`/parts/${part.id}/edit`}
+              className="text-yellow-600 hover:text-yellow-800 p-1 rounded transition-colors"
+              title="Edit Part"
+            >
+              ✏️
+            </Link>
+          )}
+          
+          {/* ACCESS CONTROL: Log Transaction available to Admin/User */}
+          {canEdit && (
+            <Link
+              to={`/transactions/new?partId=${part.partId}`}
+              className="text-green-600 hover:text-green-800 p-1 rounded transition-colors"
+              title="Log Transaction"
+            >
+              📦
+            </Link>
+          )}
         </div>
       </td>
     </tr>

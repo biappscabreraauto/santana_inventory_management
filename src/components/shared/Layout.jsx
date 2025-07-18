@@ -2,26 +2,30 @@ import React, { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
+import { useRoleAccess } from '../../hooks/useRoleAccess'
+import RoleProtected from '../auth/RoleProtected'
 import LoadingSpinner from './LoadingSpinner'
 
 // =================================================================
-// NAVIGATION CONFIGURATION
+// NAVIGATION CONFIGURATION WITH ROLE REQUIREMENTS
 // =================================================================
 const navigationItems = [
   {
     name: 'Dashboard',
     href: '/',
     icon: '📊',
-    description: 'Overview and analytics'
+    description: 'Overview and analytics',
+    requiredRole: 'ReadOnly'
   },
   {
     name: 'Parts',
     href: '/parts',
     icon: '🔧',
     description: 'Manage inventory parts',
+    requiredRole: 'ReadOnly',
     submenu: [
-      { name: 'All Parts', href: '/parts' },
-      { name: 'Add New Part', href: '/parts/new' }
+      { name: 'All Parts', href: '/parts', requiredRole: 'ReadOnly' },
+      { name: 'Add New Part', href: '/parts/new', requiredRole: 'User' }
     ]
   },
   {
@@ -29,9 +33,10 @@ const navigationItems = [
     href: '/invoices',
     icon: '📄',
     description: 'Sales and billing',
+    requiredRole: 'ReadOnly',
     submenu: [
-      { name: 'All Invoices', href: '/invoices' },
-      { name: 'Create Invoice', href: '/invoices/new' }
+      { name: 'All Invoices', href: '/invoices', requiredRole: 'ReadOnly' },
+      { name: 'Create Invoice', href: '/invoices/new', requiredRole: 'User' }
     ]
   },
   {
@@ -39,9 +44,10 @@ const navigationItems = [
     href: '/buyers',
     icon: '👥',
     description: 'Customer management',
+    requiredRole: 'ReadOnly',
     submenu: [
-      { name: 'All Buyers', href: '/buyers' },
-      { name: 'Add New Buyer', href: '/buyers/new' }
+      { name: 'All Buyers', href: '/buyers', requiredRole: 'ReadOnly' },
+      { name: 'Add New Buyer', href: '/buyers/new', requiredRole: 'User' }
     ]
   },
   {
@@ -49,17 +55,27 @@ const navigationItems = [
     href: '/transactions',
     icon: '📦',
     description: 'Inventory movements',
+    requiredRole: 'ReadOnly',
     submenu: [
-      { name: 'Transaction History', href: '/transactions' },
-      { name: 'Log Inbound Parts', href: '/transactions/new' }
+      { name: 'Transaction History', href: '/transactions', requiredRole: 'ReadOnly' },
+      { name: 'Log Inbound Parts', href: '/transactions/new', requiredRole: 'User' }
     ]
   },
   {
     name: 'External Lookup',
     href: '/external-lookup',
     icon: '🔍',
-    description: 'RockAuto & Google search'
+    description: 'RockAuto & Google search',
+    requiredRole: 'ReadOnly'
   }
+]
+
+// Quick action shortcuts configuration
+const quickActions = [
+  { name: 'Add Part', href: '/parts/new', icon: '🔧', requiredRole: 'User' },
+  { name: 'Add Buyer', href: '/buyers/new', icon: '👥', requiredRole: 'User' },
+  { name: 'Create Invoice', href: '/invoices/new', icon: '📄', requiredRole: 'User' },
+  { name: 'Log Transaction', href: '/transactions/new', icon: '📦', requiredRole: 'User' }
 ]
 
 // =================================================================
@@ -70,11 +86,24 @@ const Layout = ({ children }) => {
   const navigate = useNavigate()
   const { user, signOut, loading: authLoading } = useAuth()
   const { info } = useToast()
+  const { 
+    canAccess, 
+    isAdmin, 
+    isUser, 
+    isReadOnly, 
+    userRole,
+    hasUserAccess 
+  } = useRoleAccess('ReadOnly')
   
   // Local state
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeSubmenu, setActiveSubmenu] = useState(null)
   const [pageLoading, setPageLoading] = useState(false)
+
+  // Early return if no access
+  if (!canAccess) {
+    return <RoleProtected requiredRole="ReadOnly" />
+  }
 
   // =================================================================
   // NAVIGATION HELPERS
@@ -121,6 +150,46 @@ const Layout = ({ children }) => {
     setActiveSubmenu(activeSubmenu === menuName ? null : menuName)
   }
 
+  /**
+   * Check if user can access navigation item
+   */
+  const canAccessNavItem = (item) => {
+    if (!item.requiredRole) return true
+    
+    switch (item.requiredRole) {
+      case 'Admin':
+        return isAdmin
+      case 'User':
+        return hasUserAccess
+      case 'ReadOnly':
+        return canAccess
+      default:
+        return false
+    }
+  }
+
+  /**
+   * Filter navigation items by role
+   */
+  const getAccessibleNavItems = () => {
+    return navigationItems.filter(canAccessNavItem)
+  }
+
+  /**
+   * Filter submenu items by role
+   */
+  const getAccessibleSubmenuItems = (submenu) => {
+    if (!submenu) return []
+    return submenu.filter(canAccessNavItem)
+  }
+
+  /**
+   * Filter quick actions by role
+   */
+  const getAccessibleQuickActions = () => {
+    return quickActions.filter(canAccessNavItem)
+  }
+
   // =================================================================
   // EFFECTS
   // =================================================================
@@ -151,10 +220,13 @@ const Layout = ({ children }) => {
     )
   }
 
+  const accessibleNavItems = getAccessibleNavItems()
+  const accessibleQuickActions = getAccessibleQuickActions()
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
       {/* =================================================================
-          SIDEBAR OVERLAY (Mobile)
+          SIDEBAR OVERLAY (Mobile) - ALL USERS
           ================================================================= */}
       {sidebarOpen && (
         <div 
@@ -166,7 +238,7 @@ const Layout = ({ children }) => {
       )}
 
       {/* =================================================================
-          SIDEBAR
+          SIDEBAR - ROLE-FILTERED NAVIGATION
           ================================================================= */}
       <div className={`
         fixed inset-y-0 left-0 z-50 w-64 bg-white shadow-lg transform transition-transform duration-300 ease-in-out
@@ -189,62 +261,67 @@ const Layout = ({ children }) => {
             </button>
           </div>
 
-          {/* Navigation */}
+          {/* Navigation - Role-Filtered */}
           <nav className="flex-1 px-4 py-6 overflow-y-auto">
             <div className="space-y-2">
-              {navigationItems.map((item) => (
-                <div key={item.name}>
-                  {/* Main navigation item */}
-                  <div
-                    className={`
-                      group flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer transition-colors
-                      ${isActiveRoute(item.href)
-                        ? 'bg-blue-100 text-blue-700'
-                        : 'text-gray-700 hover:bg-gray-100'
-                      }
-                    `}
-                    onClick={() => {
-                      if (item.submenu) {
-                        toggleSubmenu(item.name)
-                      } else {
-                        handleNavigation(item.href)
-                      }
-                    }}
-                  >
-                    <span className="mr-3 text-lg">{item.icon}</span>
-                    <span className="flex-1">{item.name}</span>
-                    {item.submenu && (
-                      <span className={`
-                        transition-transform duration-200
-                        ${activeSubmenu === item.name ? 'rotate-180' : ''}
-                      `}>
-                        ▼
-                      </span>
+              {accessibleNavItems.map((item) => {
+                const accessibleSubmenu = getAccessibleSubmenuItems(item.submenu)
+                const hasAccessibleSubmenu = accessibleSubmenu.length > 0
+                
+                return (
+                  <div key={item.name}>
+                    {/* Main navigation item */}
+                    <div
+                      className={`
+                        group flex items-center px-3 py-2 text-sm font-medium rounded-lg cursor-pointer transition-colors
+                        ${isActiveRoute(item.href)
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'text-gray-700 hover:bg-gray-100'
+                        }
+                      `}
+                      onClick={() => {
+                        if (hasAccessibleSubmenu) {
+                          toggleSubmenu(item.name)
+                        } else {
+                          handleNavigation(item.href)
+                        }
+                      }}
+                    >
+                      <span className="mr-3 text-lg">{item.icon}</span>
+                      <span className="flex-1">{item.name}</span>
+                      {hasAccessibleSubmenu && (
+                        <span className={`
+                          transition-transform duration-200
+                          ${activeSubmenu === item.name ? 'rotate-180' : ''}
+                        `}>
+                          ▼
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Submenu - Role-Filtered */}
+                    {hasAccessibleSubmenu && activeSubmenu === item.name && (
+                      <div className="ml-6 mt-2 space-y-1">
+                        {accessibleSubmenu.map((subItem) => (
+                          <div
+                            key={subItem.href}
+                            className={`
+                              block px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors
+                              ${location.pathname === subItem.href
+                                ? 'bg-blue-50 text-blue-600 font-medium'
+                                : 'text-gray-600 hover:bg-gray-50'
+                              }
+                            `}
+                            onClick={() => handleNavigation(subItem.href)}
+                          >
+                            {subItem.name}
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
-
-                  {/* Submenu */}
-                  {item.submenu && activeSubmenu === item.name && (
-                    <div className="ml-6 mt-2 space-y-1">
-                      {item.submenu.map((subItem) => (
-                        <div
-                          key={subItem.href}
-                          className={`
-                            block px-3 py-2 text-sm rounded-lg cursor-pointer transition-colors
-                            ${location.pathname === subItem.href
-                              ? 'bg-blue-50 text-blue-600 font-medium'
-                              : 'text-gray-600 hover:bg-gray-50'
-                            }
-                          `}
-                          onClick={() => handleNavigation(subItem.href)}
-                        >
-                          {subItem.name}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+                )
+              })}
             </div>
           </nav>
 
@@ -265,6 +342,23 @@ const Layout = ({ children }) => {
                 </p>
               </div>
             </div>
+            
+            {/* Role Display */}
+            <div className="mb-3">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                {userRole} Access
+              </span>
+              {isAdmin && (
+                <div className="mt-1 text-xs text-gray-500">Full System Access</div>
+              )}
+              {isUser && (
+                <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
+              )}
+              {isReadOnly && (
+                <div className="mt-1 text-xs text-gray-500">View Only Access</div>
+              )}
+            </div>
+            
             <button
               onClick={handleSignOut}
               className="w-full btn btn-outline text-left text-sm"
@@ -282,7 +376,7 @@ const Layout = ({ children }) => {
       <div className="flex-1 flex flex-col lg:ml-0">
         {/* Top Header */}
         <header className="bg-white shadow-sm border-b border-gray-200 h-16 flex items-center justify-between px-6">
-          {/* Mobile menu button */}
+          {/* Mobile menu button - ALL USERS */}
           <button
             onClick={() => setSidebarOpen(true)}
             className="lg:hidden text-gray-500 hover:text-gray-700"
@@ -299,43 +393,32 @@ const Layout = ({ children }) => {
 
           {/* Header actions */}
           <div className="flex items-center space-x-4">
-            {/* Quick add button */}
-            <div className="relative group">
-              <button className="btn btn-primary">
-                <span className="mr-1">+</span>
-                Quick Add
-              </button>
-              
-              {/* Quick add dropdown */}
-              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
-                <div className="py-2">
-                  <button 
-                    onClick={() => handleNavigation('/parts/new')}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    🔧 Add Part
+            {/* Quick add button - USER+ ONLY */}
+            <RoleProtected requiredRole="User" hideIfUnauthorized>
+              {accessibleQuickActions.length > 0 && (
+                <div className="relative group">
+                  <button className="btn btn-primary">
+                    <span className="mr-1">+</span>
+                    Quick Add
                   </button>
-                  <button 
-                    onClick={() => handleNavigation('/invoices/new')}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    📄 Create Invoice
-                  </button>
-                  <button 
-                    onClick={() => handleNavigation('/buyers/new')}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    👥 Add Buyer
-                  </button>
-                  <button 
-                    onClick={() => handleNavigation('/transactions/new')}
-                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                  >
-                    📦 Log Inbound Parts
-                  </button>
+                  
+                  {/* Quick add dropdown - Role-Filtered */}
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10">
+                    <div className="py-2">
+                      {accessibleQuickActions.map((action) => (
+                        <button 
+                          key={action.href}
+                          onClick={() => handleNavigation(action.href)}
+                          className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        >
+                          {action.icon} {action.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              )}
+            </RoleProtected>
 
             {/* Environment indicator */}
             {import.meta.env.VITE_ENVIRONMENT !== 'production' && (
@@ -345,6 +428,13 @@ const Layout = ({ children }) => {
                 </span>
               </div>
             )}
+
+            {/* User role indicator (desktop) */}
+            <div className="hidden md:block">
+              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                {userRole}
+              </span>
+            </div>
           </div>
         </header>
 
@@ -374,6 +464,9 @@ const Layout = ({ children }) => {
               {import.meta.env.VITE_DEBUG_MODE === 'true' && (
                 <span className="text-yellow-600">Debug Mode</span>
               )}
+              <span className="hidden sm:inline">
+                Logged in as {userRole}
+              </span>
             </div>
           </div>
         </footer>

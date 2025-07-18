@@ -3,21 +3,39 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import { useSharePointBase } from '../../hooks/useSharePoint'
+import { useRoleAccess } from '../../hooks/useRoleAccess'
+import RoleProtected from '../auth/RoleProtected'
 
 // Import SharePoint hooks - CREATE-ONLY MODE
 import { useInvoices, useBuyers, useParts } from '../../hooks/useSharePoint'
 
 // Import icons
-import { Plus, Minus, Search, Package, User, Calendar, DollarSign, Save } from 'lucide-react'
+import { Plus, Minus, Search, Package, User, Calendar, DollarSign, Save, AlertTriangle } from 'lucide-react'
 
 // =================================================================
-// INVOICE FORM COMPONENT - UPDATED: CREATE-ONLY MODE
+// INVOICE FORM COMPONENT - UPDATED: CREATE-ONLY MODE WITH RBAC
 // =================================================================
 const InvoiceForm = () => {
   const navigate = useNavigate()
   const { success, error } = useToast()
   const { executeOperation } = useSharePointBase()
   
+  // Role-based access control
+  const { 
+    canAccess, 
+    canCreate, 
+    isReadOnly, 
+    isUser, 
+    isAdmin,
+    userRole,
+    canAccessField 
+  } = useRoleAccess('User') // Minimum User role required for invoice creation
+
+  // Early return if insufficient access
+  if (!canAccess) {
+    return <RoleProtected requiredRole="User" />
+  }
+
   // REMOVED: Edit mode - only create mode supported
   const pageTitle = 'Create Invoice'
 
@@ -42,7 +60,7 @@ const InvoiceForm = () => {
   const loading = buyersLoading || partsLoading || createLoading
 
   // =================================================================
-  // STATE MANAGEMENT - UPDATED: No draft status
+  // STATE MANAGEMENT - UPDATED: No draft status, RBAC considerations
   // =================================================================
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
@@ -56,12 +74,15 @@ const InvoiceForm = () => {
   const [errors, setErrors] = useState({})
   const [validationErrors, setValidationErrors] = useState([])
 
-  // Part search for line items
+  // Part search for line items - Only enabled for User+ roles
   const [partSearchTerm, setPartSearchTerm] = useState('')
   const [showPartDropdown, setShowPartDropdown] = useState(false)
   const [activeLineItemIndex, setActiveLineItemIndex] = useState(null)
 
   const generateInvoiceNumber = useCallback(() => {
+    // Only Users+ can generate invoice numbers
+    if (!canCreate) return ''
+
     const now = new Date();
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -77,27 +98,29 @@ const InvoiceForm = () => {
     }));
     
     return invoiceNumber;
-  }, []);
+  }, [canCreate]);
 
   // =================================================================
-  // INITIALIZATION - GENERATE INVOICE NUMBER
+  // INITIALIZATION - GENERATE INVOICE NUMBER (RBAC Protected)
   // =================================================================
   useEffect(() => {
-    if (!formData.invoiceNumber) {
+    if (!formData.invoiceNumber && canCreate) {
       generateInvoiceNumber();
     }
-  }, [formData.invoiceNumber, generateInvoiceNumber]);
+  }, [formData.invoiceNumber, generateInvoiceNumber, canCreate]);
 
   // =================================================================
-  // MEMOIZED CALCULATIONS
+  // MEMOIZED CALCULATIONS - RBAC Aware
   // =================================================================
   const filteredParts = useMemo(() => {
-    if (!partSearchTerm || !parts) return []
+    // ReadOnly users cannot search parts for invoice creation
+    if (!canCreate || !partSearchTerm || !parts) return []
+    
     return parts.filter(part => 
       part.partId.toLowerCase().includes(partSearchTerm.toLowerCase()) ||
       part.description.toLowerCase().includes(partSearchTerm.toLowerCase())
     ).slice(0, 10)
-  }, [parts, partSearchTerm])
+  }, [parts, partSearchTerm, canCreate])
 
   const calculateTotals = useCallback(() => {
     const subtotal = lineItems.reduce((sum, item) => {
@@ -114,9 +137,12 @@ const InvoiceForm = () => {
   }, [lineItems]);
 
   // =================================================================
-  // NEW: OVERSELLING VALIDATION
+  // NEW: OVERSELLING VALIDATION - RBAC Protected
   // =================================================================
   const validateInventoryLevels = useCallback(async () => {
+    // Only validate if user can create invoices
+    if (!canCreate) return []
+
     const stockErrors = [];
     
     for (const item of lineItems) {
@@ -134,12 +160,18 @@ const InvoiceForm = () => {
     }
     
     return stockErrors;
-  }, [lineItems, parts]);
+  }, [lineItems, parts, canCreate]);
 
   // =================================================================
-  // EVENT HANDLERS
+  // EVENT HANDLERS - RBAC Protected
   // =================================================================
   const handleInputChange = useCallback((field, value) => {
+    // ReadOnly users cannot modify form data
+    if (isReadOnly) return;
+
+    // Check field-level permissions
+    if (!canAccessField('invoiceForm', field)) return;
+
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -153,21 +185,27 @@ const InvoiceForm = () => {
       }
       return prev
     })
-  }, [])
+  }, [isReadOnly, canAccessField])
 
   const handleBuyerChange = useCallback((buyerId) => {
+    // ReadOnly users cannot change buyer
+    if (isReadOnly || !canAccessField('invoiceForm', 'buyer')) return;
+
     const selectedBuyer = buyers.find(b => b.id === buyerId)
     setFormData(prev => ({
       ...prev,
       buyer: selectedBuyer?.buyerName || '',
       buyerId: selectedBuyer?.id || null
     }))
-  }, [buyers])
+  }, [buyers, isReadOnly, canAccessField])
 
   // =================================================================
-  // LINE ITEM MANAGEMENT
+  // LINE ITEM MANAGEMENT - RBAC Protected
   // =================================================================
   const addLineItem = useCallback((part = null) => {
+    // Only User+ can add line items
+    if (!canCreate || !canAccessField('invoiceForm', 'lineItems')) return;
+
     const newItem = {
       id: Date.now(),
       partId: part?.partId || '',
@@ -184,9 +222,12 @@ const InvoiceForm = () => {
       setPartSearchTerm('')
       setShowPartDropdown(true)
     }
-  }, [])
+  }, [canCreate, canAccessField])
 
   const updateLineItem = useCallback((index, field, value) => {
+    // Only User+ can update line items
+    if (!canCreate || !canAccessField('invoiceForm', 'lineItems')) return;
+
     setLineItems(prev => {
       const updated = [...prev];
       
@@ -209,13 +250,19 @@ const InvoiceForm = () => {
 
       return updated;
     });
-  }, []);
+  }, [canCreate, canAccessField]);
 
   const removeLineItem = useCallback((index) => {
+    // Only User+ can remove line items
+    if (!canCreate || !canAccessField('invoiceForm', 'lineItems')) return;
+
     setLineItems(prev => prev.filter((_, i) => i !== index))
-  }, [])
+  }, [canCreate, canAccessField])
 
   const selectPartForLineItem = useCallback((index, part) => {
+    // Only User+ can select parts for line items
+    if (!canCreate || !canAccessField('invoiceForm', 'lineItems')) return;
+
     setLineItems(prev => {
       const updated = [...prev];
       const currentQuantity = parseFloat(updated[index]?.quantity) || 1;
@@ -235,12 +282,18 @@ const InvoiceForm = () => {
     setShowPartDropdown(false);
     setPartSearchTerm('');
     setActiveLineItemIndex(null);
-  }, []);
+  }, [canCreate, canAccessField]);
 
-  // =================================================================
-  // VALIDATION - UPDATED: Added stock validation
+// =================================================================
+  // VALIDATION - UPDATED: Added stock validation, RBAC Protected
   // =================================================================
   const validateForm = async () => {
+    // Only validate if user can create invoices
+    if (!canCreate) {
+      error('You do not have permission to create invoices.');
+      return false;
+    }
+
     const newErrors = {}
 
     if (!formData.invoiceNumber.trim()) {
@@ -259,7 +312,7 @@ const InvoiceForm = () => {
       newErrors.lineItems = 'At least one line item is required'
     }
 
-    // NEW: Validate inventory levels
+    // NEW: Validate inventory levels (only for User+ roles)
     const stockErrors = await validateInventoryLevels();
     if (stockErrors.length > 0) {
       setValidationErrors(stockErrors);
@@ -273,11 +326,17 @@ const InvoiceForm = () => {
   }
 
   // =================================================================
-  // FORM SUBMISSION - UPDATED: Direct create as finalized
+  // FORM SUBMISSION - UPDATED: Direct create as finalized, RBAC Protected
   // =================================================================
   const handleSubmit = useCallback(async (e) => {
     e.preventDefault()
     
+    // Block submission for ReadOnly users
+    if (!canCreate) {
+      error('You do not have permission to create invoices.');
+      return;
+    }
+
     const isValid = await validateForm();
     if (!isValid) {
       error('Please correct the errors before saving.');
@@ -310,10 +369,10 @@ const InvoiceForm = () => {
     } finally {
       setSaving(false)
     }
-  }, [formData, lineItems, error, success, navigate, createInvoice, calculateTotals, validateForm])
+  }, [formData, lineItems, error, success, navigate, createInvoice, calculateTotals, validateForm, canCreate])
 
   // =================================================================
-  // RENDER
+  // RENDER - RBAC Protected UI Elements
   // =================================================================
   if (loading) {
     return <LoadingSpinner message="Loading invoice form..." />
@@ -324,17 +383,47 @@ const InvoiceForm = () => {
 
   return (
     <div className="max-w-6xl mx-auto p-6 space-y-6">
-      {/* Header */}
+      {/* Header with Role Badge */}
       <div className="bg-white rounded-lg border border-gray-200 p-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{pageTitle}</h1>
             <p className="text-gray-600 mt-1">
-              Create a new invoice (automatically finalized)
+              {canCreate 
+                ? "Create a new invoice (automatically finalized)" 
+                : "Invoice creation requires User permissions"
+              }
             </p>
+          </div>
+          <div className="text-right">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              {userRole} Access
+            </span>
+            {!canCreate && (
+              <div className="mt-1 text-xs text-red-600 flex items-center">
+                <AlertTriangle className="h-3 w-3 mr-1" />
+                Insufficient Permissions
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Permission Warning for ReadOnly Users */}
+      {isReadOnly && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-start">
+            <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 mr-3" />
+            <div>
+              <h3 className="text-yellow-800 font-medium">Read-Only Access</h3>
+              <p className="text-yellow-700 text-sm mt-1">
+                You have read-only access and cannot create invoices. Contact your administrator 
+                to request User permissions for invoice creation.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Validation Errors */}
       {validationErrors.length > 0 && (
@@ -349,12 +438,12 @@ const InvoiceForm = () => {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Invoice Details */}
+        {/* Invoice Details - RBAC Protected */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-4">Invoice Details</h2>
           
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Invoice Number */}
+            {/* Invoice Number - Display for all, but emphasize permissions */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Invoice Number *
@@ -363,18 +452,22 @@ const InvoiceForm = () => {
                 type="text"
                 value={formData.invoiceNumber}
                 onChange={(e) => handleInputChange('invoiceNumber', e.target.value)}
+                disabled={!canCreate}
                 className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                   errors.invoiceNumber ? 'border-red-500' : 'border-gray-300'
-                }`}
-                placeholder="Auto-generated"
+                } ${!canCreate ? 'bg-gray-100 cursor-not-allowed' : ''}`}
+                placeholder={canCreate ? "Auto-generated" : "Requires User permission"}
                 required
               />
               {errors.invoiceNumber && (
                 <p className="mt-1 text-sm text-red-600">{errors.invoiceNumber}</p>
               )}
+              {!canCreate && (
+                <p className="mt-1 text-xs text-gray-500">Read-only field</p>
+              )}
             </div>
 
-            {/* Invoice Date */}
+            {/* Invoice Date - RBAC Protected */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 <Calendar className="h-4 w-4 inline mr-1" />
@@ -384,9 +477,10 @@ const InvoiceForm = () => {
                 type="date"
                 value={formData.invoiceDate}
                 onChange={(e) => handleInputChange('invoiceDate', e.target.value)}
+                disabled={!canCreate}
                 className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                   errors.invoiceDate ? 'border-red-500' : 'border-gray-300'
-                }`}
+                } ${!canCreate ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 required
               />
               {errors.invoiceDate && (
@@ -394,7 +488,7 @@ const InvoiceForm = () => {
               )}
             </div>
 
-            {/* Buyer Selection */}
+            {/* Buyer Selection - RBAC Protected */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 <User className="h-4 w-4 inline mr-1" />
@@ -403,13 +497,14 @@ const InvoiceForm = () => {
               <select
                 value={formData.buyerId || ''}
                 onChange={(e) => handleBuyerChange(e.target.value)}
+                disabled={!canCreate}
                 className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                   errors.buyer ? 'border-red-500' : 'border-gray-300'
-                }`}
+                } ${!canCreate ? 'bg-gray-100 cursor-not-allowed' : ''}`}
                 required
               >
-                <option value="">Select buyer...</option>
-                {buyers.map(buyer => (
+                <option value="">{canCreate ? "Select buyer..." : "Buyer selection disabled"}</option>
+                {canCreate && buyers.map(buyer => (
                   <option key={buyer.id} value={buyer.id}>
                     {buyer.buyerName}
                   </option>
@@ -421,7 +516,7 @@ const InvoiceForm = () => {
             </div>
           </div>
 
-          {/* Notes */}
+          {/* Notes - RBAC Protected */}
           <div className="mt-6">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Notes
@@ -429,13 +524,16 @@ const InvoiceForm = () => {
             <textarea
               value={formData.notes}
               onChange={(e) => handleInputChange('notes', e.target.value)}
+              disabled={!canCreate}
               rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Additional notes..."
+              className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                !canCreate ? 'bg-gray-100 cursor-not-allowed' : ''
+              }`}
+              placeholder={canCreate ? "Additional notes..." : "Notes disabled - requires User permission"}
             />
           </div>
 
-          {/* Selected Buyer Info */}
+          {/* Selected Buyer Info - Available to all users */}
           {selectedBuyer && (
             <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
               <div className="space-y-2 text-sm">
@@ -451,18 +549,21 @@ const InvoiceForm = () => {
           )}
         </div>
 
-        {/* Line Items */}
+        {/* Line Items - RBAC Protected */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">Line Items</h2>
-            <button
-              type="button"
-              onClick={() => addLineItem()}
-              className="btn btn-primary flex items-center"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Item
-            </button>
+            <RoleProtected requiredRole="User" hideIfUnauthorized>
+              <button
+                type="button"
+                onClick={() => addLineItem()}
+                disabled={!canCreate}
+                className="btn btn-primary flex items-center disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Item
+              </button>
+            </RoleProtected>
           </div>
 
           {errors.lineItems && (
@@ -473,14 +574,19 @@ const InvoiceForm = () => {
             <div className="text-center py-8 text-gray-500">
               <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
               <p>No line items added yet.</p>
-              <p className="text-sm">Click "Add Item" to start building your invoice.</p>
+              <p className="text-sm">
+                {canCreate 
+                  ? 'Click "Add Item" to start building your invoice.'
+                  : 'User permissions required to add line items.'
+                }
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
               {lineItems.map((item, index) => (
                 <div key={item.id} className="border border-gray-200 rounded-lg p-4">
                   <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
-                    {/* Part Selection */}
+                    {/* Part Selection - RBAC Protected */}
                     <div className="md:col-span-2 relative">
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Part
@@ -490,19 +596,24 @@ const InvoiceForm = () => {
                           type="text"
                           value={item.partId}
                           onChange={(e) => {
-                            updateLineItem(index, 'partId', e.target.value)
-                            setPartSearchTerm(e.target.value)
-                            setActiveLineItemIndex(index)
-                            setShowPartDropdown(true)
+                            if (canCreate) {
+                              updateLineItem(index, 'partId', e.target.value)
+                              setPartSearchTerm(e.target.value)
+                              setActiveLineItemIndex(index)
+                              setShowPartDropdown(true)
+                            }
                           }}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder="Search parts..."
+                          disabled={!canCreate}
+                          className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                            !canCreate ? 'bg-gray-100 cursor-not-allowed' : ''
+                          }`}
+                          placeholder={canCreate ? "Search parts..." : "Part search disabled"}
                         />
                         <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
                       </div>
                       
-                      {/* Part Dropdown */}
-                      {showPartDropdown && activeLineItemIndex === index && filteredParts.length > 0 && (
+                      {/* Part Dropdown - Only for User+ */}
+                      {canCreate && showPartDropdown && activeLineItemIndex === index && filteredParts.length > 0 && (
                         <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
                           {filteredParts.map(part => (
                             <div
@@ -521,7 +632,7 @@ const InvoiceForm = () => {
                       )}
                     </div>
 
-                    {/* Quantity */}
+                    {/* Quantity - RBAC Protected */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Qty
@@ -531,12 +642,15 @@ const InvoiceForm = () => {
                         min="1"
                         step="1"
                         value={item.quantity}
-                        onChange={(e) => updateLineItem(index, 'quantity', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        onChange={(e) => canCreate && updateLineItem(index, 'quantity', e.target.value)}
+                        disabled={!canCreate}
+                        className={`w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                          !canCreate ? 'bg-gray-100 cursor-not-allowed' : ''
+                        }`}
                       />
                     </div>
 
-                    {/* Unit Price - FIXED: Added currency formatting */}
+                    {/* Unit Price - RBAC Protected */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Unit Price
@@ -547,6 +661,7 @@ const InvoiceForm = () => {
                           type="text"
                           value={item.unitPrice}
                           onChange={(e) => {
+                            if (!canCreate) return;
                             const value = e.target.value;
                             // Allow only numbers and decimal point
                             if (/^\d*\.?\d*$/.test(value) || value === '') {
@@ -554,19 +669,23 @@ const InvoiceForm = () => {
                             }
                           }}
                           onBlur={(e) => {
+                            if (!canCreate) return;
                             // Format the value when user leaves the field
                             const numValue = parseFloat(e.target.value) || 0;
                             updateLineItem(index, 'unitPrice', numValue.toFixed(2));
                           }}
+                          disabled={!canCreate}
                           placeholder="0.00"
-                          className="w-full pl-8 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          className={`w-full pl-8 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                            !canCreate ? 'bg-gray-100 cursor-not-allowed' : ''
+                          }`}
                           pattern="[0-9]*\.?[0-9]*"
                           inputMode="decimal"
                         />
                       </div>
                     </div>
 
-                    {/* Total */}
+                    {/* Total - Display for all */}
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Total
@@ -576,15 +695,18 @@ const InvoiceForm = () => {
                       </div>
                     </div>
 
-                    {/* Remove Button */}
+                    {/* Remove Button - RBAC Protected */}
                     <div>
-                      <button
-                        type="button"
-                        onClick={() => removeLineItem(index)}
-                        className="w-full btn btn-danger flex items-center justify-center"
-                      >
-                        <Minus className="h-4 w-4" />
-                      </button>
+                      <RoleProtected requiredRole="User" hideIfUnauthorized>
+                        <button
+                          type="button"
+                          onClick={() => removeLineItem(index)}
+                          disabled={!canCreate}
+                          className="w-full btn btn-danger flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <Minus className="h-4 w-4" />
+                        </button>
+                      </RoleProtected>
                     </div>
                   </div>
                 </div>
@@ -592,86 +714,90 @@ const InvoiceForm = () => {
             </div>
           )}
 
-{/* Totals with Tax Notice */}
-{lineItems.length > 0 && (
-  <div className="mt-6 border-t border-gray-200 pt-6">
-    <div className="flex justify-end">
-      <div className="w-80 space-y-3">
-        {/* Totals */}
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <span>Subtotal:</span>
-            <span>${totals.subtotal.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between font-bold text-lg border-t border-gray-200 pt-2">
-            <span>Total:</span>
-            <span>${totals.total.toFixed(2)}</span>
-          </div>
-        </div>
-        
-        {/* Tax Notice - Professional Version */}
-        <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mt-4">
-          <div className="flex items-start">
-            <div className="flex-shrink-0">
-              <svg className="h-4 w-4 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-              </svg>
+          {/* Totals with Tax Notice - Available to all */}
+          {lineItems.length > 0 && (
+            <div className="mt-6 border-t border-gray-200 pt-6">
+              <div className="flex justify-end">
+                <div className="w-80 space-y-3">
+                  {/* Totals */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span>Subtotal:</span>
+                      <span>${totals.subtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-lg border-t border-gray-200 pt-2">
+                      <span>Total:</span>
+                      <span>${totals.total.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  
+                  {/* Tax Notice - Professional Version */}
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mt-4">
+                    <div className="flex items-start">
+                      <div className="flex-shrink-0">
+                        <svg className="h-4 w-4 text-blue-600 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                        </svg>
+                      </div>
+                      <div className="ml-2">
+                        <p className="text-sm text-blue-700">
+                          <strong>Tax Disclaimer:</strong> The amounts shown are pre-tax totals. 
+                          Applicable sales tax, use tax, and other governmental fees will be calculated 
+                          and added to the final invoice amount as required by applicable law.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="ml-2">
-              <p className="text-sm text-blue-700">
-                <strong>Tax Disclaimer:</strong> The amounts shown are pre-tax totals. 
-                Applicable sales tax, use tax, and other governmental fees will be calculated 
-                and added to the final invoice amount as required by applicable law.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-)}
+          )}
         </div>
 
-        {/* Form Actions */}
+        {/* Form Actions - RBAC Protected */}
         <div className="bg-white rounded-lg border border-gray-200 p-6">
           <div className="flex justify-between">
             <div>
-              <button
-                type="submit"
-                disabled={saving || lineItems.length === 0}
-                className="btn btn-primary flex items-center justify-center"
-              >
-                {saving ? (
-                  <>
-                    <LoadingSpinner size="sm" className="mr-2" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4 mr-2" />
-                    Create & Finalize Invoice
-                  </>
-                )}
-              </button>
+              <RoleProtected requiredRole="User" hideIfUnauthorized>
+                <button
+                  type="submit"
+                  disabled={saving || lineItems.length === 0 || !canCreate}
+                  className="btn btn-primary flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? (
+                    <>
+                      <LoadingSpinner size="sm" className="mr-2" />
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Create & Finalize Invoice
+                    </>
+                  )}
+                </button>
+              </RoleProtected>
             </div>
 
             <Link to="/invoices" className="btn btn-secondary">
-              Cancel
+              {canCreate ? 'Cancel' : 'Back to Invoices'}
             </Link>
           </div>
 
-          {/* Help Text */}
+          {/* Help Text - Role-aware */}
           <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
             <p className="text-sm text-blue-700">
-              💡 <strong>Note:</strong> Invoices are automatically finalized upon creation. 
-              Transactions will be created and inventory updated immediately.
+              💡 <strong>Note:</strong> {canCreate 
+                ? 'Invoices are automatically finalized upon creation. Transactions will be created and inventory updated immediately.'
+                : 'Invoice creation requires User-level permissions. Contact your administrator for access.'
+              }
             </p>
           </div>
         </div>
       </form>
 
       {/* Click outside to close dropdown */}
-      {showPartDropdown && (
+      {showPartDropdown && canCreate && (
         <div 
           className="fixed inset-0 z-5" 
           onClick={() => {

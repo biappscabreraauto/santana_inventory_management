@@ -1,12 +1,14 @@
 // =================================================================
-// BUYER FORM COMPONENT
+// BUYER FORM COMPONENT - ROLE-BASED ACCESS CONTROL IMPLEMENTATION
 // =================================================================
 // Form component for creating and editing buyers/customers
-// Handles both create and edit modes with proper validation
+// Handles both create and edit modes with proper validation and role restrictions
 
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
+import { useRoleAccess } from '../../hooks/useRoleAccess'
+import RoleProtected from '../auth/RoleProtected'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import { useBuyers, useBuyer } from '../../hooks/useSharePoint'
 import { User, Mail, Phone, Save, X, AlertCircle, Check } from 'lucide-react'
@@ -16,8 +18,33 @@ const BuyerForm = () => {
   const navigate = useNavigate()
   const { success, error } = useToast()
   
+  // Role-based access control
+  const { 
+    canAccess, 
+    canCreate, 
+    canEdit, 
+    isReadOnly, 
+    isUser, 
+    isAdmin,
+    userRole 
+  } = useRoleAccess('User') // Require User+ for form access
+  
   const isEditMode = !!id
   
+  // Early return if no access to forms (ReadOnly users)
+  if (!canAccess) {
+    return <RoleProtected requiredRole="User" />
+  }
+  
+  // Check specific permissions for create/edit
+  if (isEditMode && !canEdit) {
+    return <RoleProtected requiredRole="User" message="Editing buyers requires User access or higher." />
+  }
+  
+  if (!isEditMode && !canCreate) {
+    return <RoleProtected requiredRole="User" message="Creating buyers requires User access or higher." />
+  }
+
   // Use different hooks based on mode
   const { buyers, createBuyer } = useBuyers()
   const { 
@@ -58,6 +85,33 @@ const BuyerForm = () => {
       navigate('/buyers')
     }
   }, [isEditMode, buyerLoading, existingBuyer, error, navigate])
+
+  // =================================================================
+  // ROLE-BASED FIELD ACCESS CONTROL
+  // =================================================================
+  
+  /**
+   * Check if user can access a specific form field
+   * Based on buyer form access matrix:
+   * - All form inputs: User, Admin only
+   * - Action buttons: User, Admin only
+   */
+  const canAccessField = (fieldName) => {
+    // All buyer form fields require User+ access
+    return isUser || isAdmin
+  }
+
+  /**
+   * Get field configuration based on role
+   */
+  const getFieldConfig = (fieldName) => {
+    const hasAccess = canAccessField(fieldName)
+    return {
+      disabled: !hasAccess,
+      readonly: !hasAccess,
+      accessible: hasAccess
+    }
+  }
 
   // =================================================================
   // VALIDATION
@@ -142,6 +196,11 @@ const BuyerForm = () => {
   // EVENT HANDLERS
   // =================================================================
   const handleInputChange = (field, value) => {
+    // Check field access before allowing changes
+    if (!canAccessField(field)) {
+      return
+    }
+
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -174,6 +233,17 @@ const BuyerForm = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    
+    // Double-check permissions before submit
+    if (isEditMode && !canEdit) {
+      error('You do not have permission to edit buyers')
+      return
+    }
+    
+    if (!isEditMode && !canCreate) {
+      error('You do not have permission to create buyers')
+      return
+    }
     
     if (!validateForm()) {
       error('Please fix the errors in the form')
@@ -252,7 +322,7 @@ const BuyerForm = () => {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      {/* Header */}
+      {/* Header with Role Badge */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{pageTitle}</h1>
@@ -262,6 +332,17 @@ const BuyerForm = () => {
               : 'Add a new customer to your database'
             }
           </p>
+        </div>
+        <div className="text-right">
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            {userRole} Access
+          </span>
+          {isAdmin && (
+            <div className="mt-1 text-xs text-gray-500">Full Buyer Management</div>
+          )}
+          {isUser && (
+            <div className="mt-1 text-xs text-gray-500">Standard Buyer Access</div>
+          )}
         </div>
       </div>
 
@@ -276,89 +357,101 @@ const BuyerForm = () => {
           </div>
           
           <div className="p-6 space-y-4">
-            {/* Buyer Name */}
-            <div>
-              <label htmlFor="buyerName" className="block text-sm font-medium text-gray-700 mb-1">
-                Buyer Name <span className="text-red-500">*</span>
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <User className="h-4 w-4 text-gray-400" />
+            {/* Buyer Name - User+ Access */}
+            <RoleProtected requiredRole="User" hideIfUnauthorized>
+              <div>
+                <label htmlFor="buyerName" className="block text-sm font-medium text-gray-700 mb-1">
+                  Buyer Name <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <User className="h-4 w-4 text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    id="buyerName"
+                    value={formData.buyerName}
+                    onChange={(e) => handleInputChange('buyerName', e.target.value)}
+                    onBlur={() => handleBlur('buyerName')}
+                    placeholder="Enter buyer name or company name"
+                    disabled={!canAccessField('buyerName') || saving}
+                    className={`input pl-10 ${errors.buyerName ? 
+                      'border-red-300 focus:ring-red-500 focus:border-red-500' : ''} ${
+                      !canAccessField('buyerName') ? 'bg-gray-50 cursor-not-allowed' : ''}`}
+                  />
                 </div>
-                <input
-                  type="text"
-                  id="buyerName"
-                  value={formData.buyerName}
-                  onChange={(e) => handleInputChange('buyerName', e.target.value)}
-                  onBlur={() => handleBlur('buyerName')}
-                  placeholder="Enter buyer name or company name"
-                  className={`input pl-10 ${errors.buyerName ? 
-                    'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                />
+                {errors.buyerName && (
+                  <p className="mt-1 text-sm text-red-600 flex items-center">
+                    <AlertCircle className="h-4 w-4 mr-1" />
+                    {errors.buyerName}
+                  </p>
+                )}
               </div>
-              {errors.buyerName && (
-                <p className="mt-1 text-sm text-red-600 flex items-center">
-                  <AlertCircle className="h-4 w-4 mr-1" />
-                  {errors.buyerName}
-                </p>
-              )}
-            </div>
+            </RoleProtected>
 
-            {/* Contact Email */}
-            <div>
-              <label htmlFor="contactEmail" className="block text-sm font-medium text-gray-700 mb-1">
-                Contact Email
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Mail className="h-4 w-4 text-gray-400" />
+            {/* Contact Email - User+ Access */}
+            <RoleProtected requiredRole="User" hideIfUnauthorized>
+              <div>
+                <label htmlFor="contactEmail" className="block text-sm font-medium text-gray-700 mb-1">
+                  Contact Email
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Mail className="h-4 w-4 text-gray-400" />
+                  </div>
+                  <input
+                    type="email"
+                    id="contactEmail"
+                    value={formData.contactEmail}
+                    onChange={(e) => handleInputChange('contactEmail', e.target.value)}
+                    onBlur={() => handleBlur('contactEmail')}
+                    placeholder="Enter email address"
+                    disabled={!canAccessField('contactEmail') || saving}
+                    className={`input pl-10 ${errors.contactEmail ? 
+                      'border-red-300 focus:ring-red-500 focus:border-red-500' : ''} ${
+                      !canAccessField('contactEmail') ? 'bg-gray-50 cursor-not-allowed' : ''}`}
+                  />
                 </div>
-                <input
-                  type="email"
-                  id="contactEmail"
-                  value={formData.contactEmail}
-                  onChange={(e) => handleInputChange('contactEmail', e.target.value)}
-                  onBlur={() => handleBlur('contactEmail')}
-                  placeholder="Enter email address"
-                  className={`input pl-10 ${errors.contactEmail ? 
-                    'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                />
+                {errors.contactEmail && (
+                  <p className="mt-1 text-sm text-red-600 flex items-center">
+                    <AlertCircle className="h-4 w-4 mr-1" />
+                    {errors.contactEmail}
+                  </p>
+                )}
               </div>
-              {errors.contactEmail && (
-                <p className="mt-1 text-sm text-red-600 flex items-center">
-                  <AlertCircle className="h-4 w-4 mr-1" />
-                  {errors.contactEmail}
-                </p>
-              )}
-            </div>
+            </RoleProtected>
 
-            {/* Phone */}
-            <div>
-              <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
-                Phone Number
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <Phone className="h-4 w-4 text-gray-400" />
+            {/* Phone - User+ Access */}
+            <RoleProtected requiredRole="User" hideIfUnauthorized>
+              <div>
+                <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">
+                  Phone Number
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <Phone className="h-4 w-4 text-gray-400" />
+                  </div>
+                  <input
+                    type="tel"
+                    id="phone"
+                    value={formData.phone}
+                    onChange={(e) => handlePhoneChange(e.target.value)}
+                    onBlur={() => handleBlur('phone')}
+                    placeholder="Enter phone number"
+                    disabled={!canAccessField('phone') || saving}
+                    className={`input pl-10 ${errors.phone ? 
+                      'border-red-300 focus:ring-red-500 focus:border-red-500' : ''} ${
+                      !canAccessField('phone') ? 'bg-gray-50 cursor-not-allowed' : ''}`}
+                  />
                 </div>
-                <input
-                  type="tel"
-                  id="phone"
-                  value={formData.phone}
-                  onChange={(e) => handlePhoneChange(e.target.value)}
-                  onBlur={() => handleBlur('phone')}
-                  placeholder="Enter phone number"
-                  className={`input pl-10 ${errors.phone ? 
-                    'border-red-300 focus:ring-red-500 focus:border-red-500' : ''}`}
-                />
+                {errors.phone && (
+                  <p className="mt-1 text-sm text-red-600 flex items-center">
+                    <AlertCircle className="h-4 w-4 mr-1" />
+                    {errors.phone}
+                  </p>
+                )}
               </div>
-              {errors.phone && (
-                <p className="mt-1 text-sm text-red-600 flex items-center">
-                  <AlertCircle className="h-4 w-4 mr-1" />
-                  {errors.phone}
-                </p>
-              )}
-            </div>
+            </RoleProtected>
 
             {/* Contact Method Requirement Notice */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
@@ -373,10 +466,28 @@ const BuyerForm = () => {
                 </div>
               </div>
             </div>
+
+            {/* ReadOnly User Message */}
+            <RoleProtected requiredRole="ReadOnly" hideIfUnauthorized>
+              {isReadOnly && (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <AlertCircle className="h-4 w-4 text-yellow-600" />
+                    </div>
+                    <div className="ml-2">
+                      <p className="text-sm text-yellow-800">
+                        <strong>Read-Only Access:</strong> You can view buyer information but cannot create or edit buyers. Contact your administrator to request User access.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </RoleProtected>
           </div>
         </div>
 
-        {/* Form Summary */}
+        {/* Form Summary - Available to all roles */}
         <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
           <h3 className="text-sm font-medium text-gray-900 mb-3">Summary</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -401,8 +512,9 @@ const BuyerForm = () => {
           </div>
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons - Role-based access */}
         <div className="flex justify-end space-x-3">
+          {/* Cancel Button - Available to all users */}
           <button
             type="button"
             onClick={handleCancel}
@@ -413,24 +525,48 @@ const BuyerForm = () => {
             Cancel
           </button>
           
-          <button
-            type="submit"
-            disabled={saving || Object.keys(errors).length > 0}
-            className="btn btn-primary"
-          >
-            {saving ? (
-              <>
-                <LoadingSpinner size="sm" className="mr-2" />
-                Saving...
-              </>
-            ) : (
-              <>
-                <Save className="h-4 w-4 mr-2" />
-                {submitText}
-              </>
-            )}
-          </button>
+          {/* Submit Button - User+ Access Only */}
+          <RoleProtected requiredRole="User" hideIfUnauthorized>
+            <button
+              type="submit"
+              disabled={saving || Object.keys(errors).length > 0 || !canAccessField('buyerName')}
+              className="btn btn-primary"
+            >
+              {saving ? (
+                <>
+                  <LoadingSpinner size="sm" className="mr-2" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="h-4 w-4 mr-2" />
+                  {submitText}
+                </>
+              )}
+            </button>
+          </RoleProtected>
         </div>
+
+        {/* Form Validation Status */}
+        {Object.keys(errors).length > 0 && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+              </div>
+              <div className="ml-2">
+                <h3 className="text-sm font-medium text-red-800">
+                  Please fix the following errors:
+                </h3>
+                <ul className="mt-1 text-sm text-red-700 list-disc list-inside">
+                  {Object.values(errors).map((error, index) => (
+                    <li key={index}>{error}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
       </form>
     </div>
   )

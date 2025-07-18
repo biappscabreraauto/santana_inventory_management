@@ -9,7 +9,7 @@
 | Part ID input (edit - disabled) | Form Inputs | Display Field | ✅ | ✅ | ✅ |
 | Description input | Form Inputs | Text Input | ✅ | ✅ | ❌ |
 | Category dropdown | Form Inputs | Dropdown Selection | ✅ | ✅ | ❌ |
-| Unit Cost input | Form Inputs | Numeric Input | ✅ | ❌ | ❌ |
+| Unit Cost input | Form Inputs | Numeric Input | ✅ | ✅ | ❌ |
 | Unit Price input | Form Inputs | Numeric Input | ✅ | ✅ | ❌ |
 | Inventory On Hand input (create only) | Form Inputs | Numeric Input | ✅ | ✅ | ❌ |
 | Status dropdown | Form Inputs | Dropdown Selection | ✅ | ❌ | ❌ |

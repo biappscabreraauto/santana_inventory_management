@@ -3,18 +3,37 @@ import { Link } from 'react-router-dom'
 import { useToast } from '../../context/ToastContext'
 import LoadingSpinner from '../shared/LoadingSpinner'
 import { exportInvoicesToCSV } from '../../utils/csvExport'
+import { useRoleAccess } from '../../hooks/useRoleAccess'
+import RoleProtected from '../auth/RoleProtected'
 
 // Import SharePoint hooks - UPDATED: Removed delete methods
 import { useInvoices, useBuyers } from '../../hooks/useSharePoint'
 
 // Icons
-import { Plus, Search, Filter, MoreVertical, Download, RefreshCw } from 'lucide-react'
+import { Plus, Search, Filter, MoreVertical, Download, RefreshCw, AlertTriangle, Eye } from 'lucide-react'
 
 // =================================================================
-// INVOICE LIST COMPONENT - UPDATED: Removed edit/delete, added void
+// INVOICE LIST COMPONENT - UPDATED: Removed edit/delete, added void, RBAC
 // =================================================================
 const InvoiceList = () => {
   const { success, error, info } = useToast()
+  
+  // Role-based access control
+  const { 
+    canAccess, 
+    canCreate, 
+    canVoid, 
+    canExport,
+    isReadOnly, 
+    isUser, 
+    isAdmin,
+    userRole 
+  } = useRoleAccess('ReadOnly') // Minimum ReadOnly access required
+
+  // Early return if no access
+  if (!canAccess) {
+    return <RoleProtected requiredRole="ReadOnly" />
+  }
   
   // SharePoint hooks - UPDATED: Removed delete methods
   const { 
@@ -83,7 +102,7 @@ const InvoiceList = () => {
   }, [invoices, searchTerm, statusFilter, buyerFilter, sortConfig])
 
   // =================================================================
-  // EVENT HANDLERS
+  // EVENT HANDLERS - RBAC Protected
   // =================================================================
   const handleSort = (key) => {
     setSortConfig(prevConfig => ({
@@ -92,9 +111,13 @@ const InvoiceList = () => {
     }))
   }
 
-  // REMOVED: handleSelectAll, handleSelectInvoice, handleDeleteSelected
-
   const handleVoidInvoice = async () => {
+    // Only Admin can void invoices
+    if (!canVoid) {
+      error('You do not have permission to void invoices.');
+      return;
+    }
+
     try {
       await voidInvoice(voidInvoiceId)
       success('Invoice voided successfully! Inventory restored.')
@@ -108,6 +131,12 @@ const InvoiceList = () => {
   }
 
   const handleExportInvoices = () => {
+    // Check export permissions
+    if (!canExport) {
+      error('You do not have permission to export data.');
+      return;
+    }
+
     try {
       // Create CSV content
       const headers = ['Invoice Number', 'Buyer', 'Date', 'Status', 'Total Amount', 'Notes']
@@ -144,6 +173,15 @@ const InvoiceList = () => {
   const handleRefreshData = () => {
     refreshInvoices()
     success('Invoice data refreshed!')
+  }
+
+  const handleVoidClick = (invoiceId) => {
+    if (!canVoid) {
+      error('You do not have permission to void invoices.');
+      return;
+    }
+    setVoidInvoiceId(invoiceId)
+    setShowVoidModal(true)
   }
 
   // =================================================================
@@ -220,12 +258,14 @@ const InvoiceList = () => {
             >
               🔄 Retry Connection
             </button>
-            <Link
-              to="/invoices/new"
-              className="btn btn-secondary"
-            >
-              Create Invoice Anyway
-            </Link>
+            <RoleProtected requiredRole="User" hideIfUnauthorized>
+              <Link
+                to="/invoices/new"
+                className="btn btn-secondary"
+              >
+                Create Invoice Anyway
+              </Link>
+            </RoleProtected>
           </div>
         </div>
       </div>
@@ -237,13 +277,19 @@ const InvoiceList = () => {
   // =================================================================
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Role Badge */}
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Invoices</h1>
           <p className="text-gray-600">Manage customer invoices and sales</p>
         </div>
-        <div className="flex space-x-3">
+        <div className="flex items-center space-x-3">
+          {/* Role Badge */}
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+            {userRole} Access
+          </span>
+          
+          {/* Action Buttons - RBAC Protected */}
           <button
             onClick={handleRefreshData}
             className="btn btn-secondary flex items-center"
@@ -251,15 +297,50 @@ const InvoiceList = () => {
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </button>
-          <Link
-            to="/invoices/new"
-            className="btn btn-primary flex items-center"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Create Invoice
-          </Link>
+          
+          <RoleProtected requiredRole="User" hideIfUnauthorized>
+            <Link
+              to="/invoices/new"
+              className="btn btn-primary flex items-center"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Create Invoice
+            </Link>
+          </RoleProtected>
+          
+          {/* Show disabled create button for ReadOnly with tooltip */}
+          {isReadOnly && (
+            <div className="relative group">
+              <button
+                disabled
+                className="btn btn-primary flex items-center opacity-50 cursor-not-allowed"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Create Invoice
+              </button>
+              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                Requires User permission
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Permission Info for ReadOnly Users */}
+      {isReadOnly && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start">
+            <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5 mr-3" />
+            <div>
+              <h3 className="text-blue-800 font-medium">Read-Only Access</h3>
+              <p className="text-blue-700 text-sm mt-1">
+                You can view and search invoices, but cannot create new invoices or void existing ones. 
+                Contact your administrator for User permissions.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary Stats - UPDATED: Removed draft count */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -275,9 +356,13 @@ const InvoiceList = () => {
           <div className="text-sm font-medium text-gray-500 mb-1">Void</div>
           <div className="text-2xl font-bold text-red-600">{summaryStats.voidCount}</div>
         </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
+          <div className="text-sm font-medium text-gray-500 mb-1">Total Value</div>
+          <div className="text-2xl font-bold text-green-600">{formatCurrency(summaryStats.totalAmount)}</div>
+        </div>
       </div>
 
-      {/* Filters Section */}
+      {/* Filters Section - Available to all users */}
       <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Search */}
@@ -331,23 +416,39 @@ const InvoiceList = () => {
         </div>
       </div>
 
-      {/* Actions Bar - UPDATED: Removed bulk delete */}
+      {/* Actions Bar - RBAC Protected */}
       <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
         <div className="flex justify-between items-center">
           <div className="flex items-center space-x-2">
             <span className="text-sm text-gray-600">
               Showing {filteredInvoices.length} invoices
             </span>
+            {!canCreate && (
+              <span className="text-xs text-gray-500">
+                (View-only access)
+              </span>
+            )}
           </div>
           
           <div className="flex space-x-2">
-            <button
-              onClick={handleExportInvoices}
-              className="btn btn-secondary flex items-center"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </button>
+            <RoleProtected requiredRole="ReadOnly" fallback={
+              <button
+                disabled
+                className="btn btn-secondary flex items-center opacity-50 cursor-not-allowed"
+                title="Export requires ReadOnly permission"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </button>
+            }>
+              <button
+                onClick={handleExportInvoices}
+                className="btn btn-secondary flex items-center"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Export
+              </button>
+            </RoleProtected>
           </div>
         </div>
       </div>
@@ -364,19 +465,20 @@ const InvoiceList = () => {
                 : 'Get started by creating your first invoice.'
               }
             </p>
-            <Link
-              to="/invoices/new"
-              className="btn btn-primary"
-            >
-              Create First Invoice
-            </Link>
+            <RoleProtected requiredRole="User" hideIfUnauthorized>
+              <Link
+                to="/invoices/new"
+                className="btn btn-primary"
+              >
+                Create First Invoice
+              </Link>
+            </RoleProtected>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  {/* REMOVED: Select All checkbox */}
                   <th
                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                     onClick={() => handleSort('invoiceNumber')}
@@ -418,7 +520,6 @@ const InvoiceList = () => {
                   
                   return (
                     <tr key={invoice.id} className="hover:bg-gray-50">
-                      {/* REMOVED: Select checkbox */}
                       <td className="px-6 py-4 whitespace-nowrap">
                         <Link
                           to={`/invoices/${invoice.id}`}
@@ -454,26 +555,44 @@ const InvoiceList = () => {
                       
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <div className="flex space-x-2">
+                          {/* View Details - Available to all */}
                           <Link
                             to={`/invoices/${invoice.id}`}
                             className="text-blue-600 hover:text-blue-800"
                             title="View Details"
                           >
-                            👁️
+                            <Eye className="h-4 w-4" />
                           </Link>
-                          {/* REMOVED: Edit links */}
-                          {/* ADD: Void button for Finalizedinvoices */}
+                          
+                          {/* Void button for Finalized invoices - Admin only */}
                           {(invoice.status === 'Finalized') && (
-                            <button
-                              onClick={() => {
-                                setVoidInvoiceId(invoice.id)
-                                setShowVoidModal(true)
-                              }}
-                              className="text-red-600 hover:text-red-800"
-                              title="Void Invoice"
+                            <RoleProtected requiredRole="Admin" fallback={
+                              <button
+                                disabled
+                                className="text-gray-400 cursor-not-allowed"
+                                title="Void operation requires Admin permission"
+                              >
+                                ❌
+                              </button>
+                            }>
+                              <button
+                                onClick={() => handleVoidClick(invoice.id)}
+                                className="text-red-600 hover:text-red-800"
+                                title="Void Invoice"
+                              >
+                                ❌
+                              </button>
+                            </RoleProtected>
+                          )}
+                          
+                          {/* Show permission indicator for ReadOnly users */}
+                          {isReadOnly && invoice.status === 'Finalized' && (
+                            <span 
+                              className="text-xs text-gray-400"
+                              title="Admin permission required to void"
                             >
-                              ❌
-                            </button>
+                              🔒
+                            </span>
                           )}
                         </div>
                       </td>
@@ -486,8 +605,8 @@ const InvoiceList = () => {
         )}
       </div>
 
-      {/* Void Confirmation Modal - NEW */}
-      {showVoidModal && (
+      {/* Void Confirmation Modal - Admin Only */}
+      {showVoidModal && canVoid && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
           <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
             <div className="mt-3 text-center">
@@ -502,6 +621,11 @@ const InvoiceList = () => {
                   Are you sure you want to void this invoice? This will create 
                   offsetting transactions and restore inventory levels. This action cannot be undone.
                 </p>
+                <div className="mt-3 p-2 bg-yellow-50 border border-yellow-200 rounded">
+                  <p className="text-xs text-yellow-800">
+                    <strong>Admin Action:</strong> Only administrators can perform this operation.
+                  </p>
+                </div>
               </div>
               <div className="items-center px-4 py-3">
                 <button
