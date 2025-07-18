@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { useMsal, useAccount, useIsAuthenticated } from '@azure/msal-react'
 import { loginRequest, createSilentRequest, MSAL_ERRORS, isMsalError } from '../config/msal'
 import sharePointService from '../services/sharepoint'
@@ -39,40 +39,161 @@ export const AuthProvider = ({ children }) => {
   const [authorizationChecked, setAuthorizationChecked] = useState(false)
   const [authorizationError, setAuthorizationError] = useState(null)
 
+  // INTERACTION TRACKING - NEW
+  const [isInteractionInProgress, setIsInteractionInProgress] = useState(false)
+  const interactionTimeoutRef = useRef(null)
+
   // =================================================================
   // AUTHENTICATION FUNCTIONS
   // =================================================================
 
   /**
-   * Sign in using popup
+   * Check if interaction is currently in progress
+   */
+  const checkInteractionStatus = useCallback(async () => {
+    try {
+      const inProgress = await instance.getActiveAccount() !== null && 
+                        await instance.getAllAccounts().length > 0 &&
+                        isInteractionInProgress
+      return inProgress
+    } catch (error) {
+      return false
+    }
+  }, [instance, isInteractionInProgress])
+
+  /**
+   * Clear any existing interaction state
+   */
+  const clearInteractionState = useCallback(() => {
+    setIsInteractionInProgress(false)
+    if (interactionTimeoutRef.current) {
+      clearTimeout(interactionTimeoutRef.current)
+      interactionTimeoutRef.current = null
+    }
+  }, [])
+
+  /**
+   * Handle interaction in progress error
+   */
+  const handleInteractionInProgress = useCallback(async () => {
+    console.warn('⚠️ Interaction already in progress, waiting for completion...')
+    
+    // Wait for existing interaction to complete (max 30 seconds)
+    let attempts = 0
+    const maxAttempts = 30
+    
+    while (attempts < maxAttempts) {
+      try {
+        await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
+        
+        const stillInProgress = await checkInteractionStatus()
+        if (!stillInProgress) {
+          console.log('✅ Previous interaction completed, can proceed')
+          clearInteractionState()
+          return true
+        }
+        
+        attempts++
+      } catch (error) {
+        console.error('Error checking interaction status:', error)
+        break
+      }
+    }
+    
+    // If we get here, force clear the interaction state
+    console.warn('⚠️ Forcing interaction state clear after timeout')
+    clearInteractionState()
+    
+    // Try to clear any pending interactions
+    try {
+      await instance.clearCache()
+    } catch (error) {
+      console.warn('Failed to clear cache:', error)
+    }
+    
+    return false
+  }, [checkInteractionStatus, clearInteractionState, instance])
+
+  /**
+   * Sign in using popup - FIXED VERSION
    */
   const signIn = useCallback(async () => {
+    // Prevent multiple concurrent sign-in attempts
+    if (isInteractionInProgress) {
+      console.warn('⚠️ Sign-in already in progress, ignoring duplicate request')
+      return
+    }
+
     try {
+      setIsInteractionInProgress(true)
       setLoading(true)
       setError(null)
       setAuthState(AUTH_STATES.LOADING)
       
+      // Check if there's already an interaction in progress
+      const interactionInProgress = await checkInteractionStatus()
+      if (interactionInProgress) {
+        const resolved = await handleInteractionInProgress()
+        if (!resolved) {
+          throw new Error('Could not resolve existing authentication interaction')
+        }
+      }
+
+      // Clear any existing error state
+      setError(null)
+      setAuthorizationError(null)
+
+      // Set timeout to automatically clear interaction state
+      interactionTimeoutRef.current = setTimeout(() => {
+        console.warn('⚠️ Login timeout, clearing interaction state')
+        clearInteractionState()
+      }, 60000) // 60 second timeout
+
+      console.log('🔐 Starting login popup...')
       const response = await instance.loginPopup(loginRequest)
       
       if (response) {
         console.log('✅ Login successful:', response.account.name)
+        clearTimeout(interactionTimeoutRef.current)
         await acquireToken()
       }
     } catch (error) {
       console.error('❌ Login failed:', error)
+      
+      // Handle specific MSAL errors
+      if (isMsalError(error, MSAL_ERRORS.INTERACTION_REQUIRED) || 
+          error.errorCode === 'interaction_in_progress') {
+        
+        console.log('🔄 Handling interaction in progress error...')
+        const resolved = await handleInteractionInProgress()
+        
+        if (resolved) {
+          // Try again after clearing the interaction
+          console.log('🔄 Retrying login after clearing interaction...')
+          setTimeout(() => {
+            signIn() // Retry after a brief delay
+          }, 2000)
+          return
+        }
+      }
+      
       handleAuthError(error)
       setAuthState(AUTH_STATES.UNAUTHORIZED)
     } finally {
+      clearInteractionState()
       setLoading(false)
     }
-  }, [instance])
+  }, [instance, isInteractionInProgress, checkInteractionStatus, handleInteractionInProgress, clearInteractionState])
 
   /**
-   * Sign out with proper cleanup
+   * Sign out with proper cleanup - ENHANCED VERSION
    */
   const signOut = useCallback(async () => {
     try {
       setLoading(true)
+      
+      // Clear interaction state first
+      clearInteractionState()
       
       // Clear all local state
       setUser(null)
@@ -90,6 +211,9 @@ export const AuthProvider = ({ children }) => {
         localStorage.removeItem('msal.cache')
       }
       
+      // Clear MSAL cache
+      await instance.clearCache()
+      
       // Use redirect for better security
       await instance.logoutRedirect({
         postLogoutRedirectUri: window.location.origin,
@@ -102,10 +226,10 @@ export const AuthProvider = ({ children }) => {
     } finally {
       setLoading(false)
     }
-  }, [instance, user?.email])
+  }, [instance, user?.email, clearInteractionState])
 
   /**
-   * Acquire access token silently or via popup
+   * Acquire access token silently or via popup - ENHANCED VERSION
    */
   const acquireToken = useCallback(async (forceRefresh = false) => {
     if (!account) {
@@ -131,10 +255,12 @@ export const AuthProvider = ({ children }) => {
     } catch (error) {
       console.warn('⚠️ Silent token acquisition failed:', error.message)
       
-      // If silent fails, try interactive popup
-      if (isMsalError(error, MSAL_ERRORS.INTERACTION_REQUIRED) || 
-          isMsalError(error, MSAL_ERRORS.CONSENT_REQUIRED)) {
+      // If silent fails, try interactive popup (but only if not in progress)
+      if ((isMsalError(error, MSAL_ERRORS.INTERACTION_REQUIRED) || 
+          isMsalError(error, MSAL_ERRORS.CONSENT_REQUIRED)) &&
+          !isInteractionInProgress) {
         try {
+          setIsInteractionInProgress(true)
           const response = await instance.acquireTokenPopup(loginRequest)
           if (response?.accessToken) {
             setAccessToken(response.accessToken)
@@ -144,6 +270,8 @@ export const AuthProvider = ({ children }) => {
         } catch (popupError) {
           console.error('❌ Interactive token acquisition failed:', popupError)
           handleAuthError(popupError)
+        } finally {
+          setIsInteractionInProgress(false)
         }
       } else {
         handleAuthError(error)
@@ -151,10 +279,10 @@ export const AuthProvider = ({ children }) => {
     }
 
     return null
-  }, [instance, account])
+  }, [instance, account, isInteractionInProgress])
 
   /**
-   * Get a fresh access token (with automatic retry)
+   * Get a fresh access token (with automatic retry) - ENHANCED VERSION
    */
   const getAccessToken = useCallback(async (forceRefresh = false) => {
     if (!isAuthenticated) {
@@ -170,7 +298,7 @@ export const AuthProvider = ({ children }) => {
   }, [isAuthenticated, accessToken, acquireToken])
 
   /**
-   * Handle authentication errors
+   * Handle authentication errors - ENHANCED VERSION
    */
   const handleAuthError = useCallback((error) => {
     let errorMessage = 'An authentication error occurred'
@@ -181,6 +309,8 @@ export const AuthProvider = ({ children }) => {
       errorMessage = 'Popup was blocked by browser. Please allow popups and try again.'
     } else if (isMsalError(error, MSAL_ERRORS.NETWORK_ERROR)) {
       errorMessage = 'Network error. Please check your connection and try again.'
+    } else if (error?.errorCode === 'interaction_in_progress') {
+      errorMessage = 'Authentication is already in progress. Please wait and try again.'
     } else if (error?.message) {
       errorMessage = error.message
     }
@@ -190,11 +320,11 @@ export const AuthProvider = ({ children }) => {
   }, [])
 
   // =================================================================
-  // AUTHORIZATION FUNCTIONS - NEW/ENHANCED
+  // AUTHORIZATION FUNCTIONS - ENHANCED
   // =================================================================
 
   /**
-   * Validate user against SharePoint whitelist with retry logic
+   * Validate user against SharePoint whitelist with retry logic - ENHANCED VERSION
    */
   const validateUserAuthorization = useCallback(async (retryCount = 0) => {
     if (!isAuthenticated || !accessToken || !user?.email) {
@@ -291,7 +421,7 @@ export const AuthProvider = ({ children }) => {
   }, [userRole])
 
   // =================================================================
-  // EFFECTS
+  // EFFECTS - ENHANCED
   // =================================================================
 
   /**
@@ -360,6 +490,15 @@ export const AuthProvider = ({ children }) => {
     }
   }, [isAuthenticated, accessToken, user])
 
+  /**
+   * Cleanup on unmount
+   */
+  useEffect(() => {
+    return () => {
+      clearInteractionState()
+    }
+  }, [clearInteractionState])
+
   // =================================================================
   // COMPUTED VALUES
   // =================================================================
@@ -409,7 +548,10 @@ export const AuthProvider = ({ children }) => {
     account,
 
     // Constants
-    AUTH_STATES
+    AUTH_STATES,
+
+    // Interaction state - NEW
+    isInteractionInProgress
   }
 
   // =================================================================
@@ -425,9 +567,10 @@ export const AuthProvider = ({ children }) => {
         hasToken: !!accessToken,
         permissions: permissions.length,
         loading,
-        error: error || authorizationError
+        error: error || authorizationError,
+        isInteractionInProgress
       })
-    }, [isAuthenticated, authState, user, userRole, accessToken, permissions, loading, error, authorizationError])
+    }, [isAuthenticated, authState, user, userRole, accessToken, permissions, loading, error, authorizationError, isInteractionInProgress])
   }
 
   return (

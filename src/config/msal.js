@@ -1,5 +1,5 @@
 // =================================================================
-// FIXED MSAL CONFIGURATION - Updated getSiteId function
+// FIXED MSAL CONFIGURATION - Enhanced Interaction Handling
 // =================================================================
 
 import { LogLevel } from '@azure/msal-browser'
@@ -46,21 +46,30 @@ export const msalConfig = {
       piiLoggingEnabled: false,
       logLevel: import.meta.env.VITE_DEBUG_MODE === 'true' ? LogLevel.Verbose : LogLevel.Warning,
     },
-    windowHashTimeout: 60000,
+    // ENHANCED: Better timeout handling
+    windowHashTimeout: 60000, // Increased from 60000
     iframeHashTimeout: 6000,
     loadFrameTimeout: 0,
+    // ENHANCED: Allow multiple concurrent interactions to be handled better
+    allowNativeBroker: false, // Disable native broker for web apps
+    asyncPopups: false, // Use synchronous popups for better control
   }
 }
 
 // =================================================================
-// LOGIN REQUEST CONFIGURATION
+// LOGIN REQUEST CONFIGURATION - ENHANCED
 // =================================================================
 export const loginRequest = {
   scopes: [
     'User.Read',
     'Sites.ReadWrite.All'
   ],
-  prompt: 'select_account'
+  prompt: 'select_account',
+  // ENHANCED: Add timeout and interaction handling
+  timeout: 60000, // 60 seconds timeout
+  forceRefresh: false,
+  // Add claims if needed for conditional access
+  extraQueryParameters: {},
 }
 
 // =================================================================
@@ -72,7 +81,7 @@ export const graphConfig = {
 }
 
 // =================================================================
-// FIXED HELPER FUNCTIONS
+// HELPER FUNCTIONS - ENHANCED
 // =================================================================
 
 /**
@@ -138,18 +147,30 @@ export async function resolveSiteId(graphClient) {
 }
 
 // =================================================================
-// OTHER HELPER FUNCTIONS (unchanged)
+// ENHANCED REQUEST BUILDERS
 // =================================================================
 
 export const createSilentRequest = (scopes = loginRequest.scopes) => ({
   scopes,
   account: null,
-  forceRefresh: false
+  forceRefresh: false,
+  timeout: 30000, // 30 seconds for silent requests
 })
 
 export const createInteractiveRequest = (scopes = loginRequest.scopes) => ({
   scopes,
-  prompt: 'consent'
+  prompt: 'consent',
+  timeout: 60000, // 60 seconds for interactive requests
+  forceRefresh: false,
+})
+
+// ENHANCED: Request with retry logic
+export const createRetryRequest = (scopes = loginRequest.scopes, retryCount = 0) => ({
+  scopes,
+  prompt: retryCount > 0 ? 'login' : 'select_account',
+  timeout: 60000 + (retryCount * 10000), // Increase timeout with retries
+  forceRefresh: retryCount > 0,
+  extraQueryParameters: retryCount > 0 ? { 'max_age': '0' } : {},
 })
 
 export const SCOPES = {
@@ -172,7 +193,79 @@ export const MSAL_ERRORS = {
   LOGIN_REQUIRED: 'login_required',
   NETWORK_ERROR: 'network_error',
   SERVER_ERROR: 'server_error',
-  POPUP_BLOCKED: 'popup_blocked'
+  POPUP_BLOCKED: 'popup_blocked',
+  INTERACTION_IN_PROGRESS: 'interaction_in_progress', // ADDED
+  TIMEOUT_ERROR: 'timeout_error', // ADDED
+}
+
+// =================================================================
+// INTERACTION HANDLING UTILITIES - NEW
+// =================================================================
+
+/**
+ * Check if error is related to interaction issues
+ */
+export const isInteractionError = (error) => {
+  return error?.errorCode === 'interaction_in_progress' ||
+         error?.message?.includes('interaction_in_progress') ||
+         error?.name === 'BrowserAuthError' && error?.message?.includes('Interaction is currently in progress')
+}
+
+/**
+ * Check if error is retryable
+ */
+export const isRetryableError = (error) => {
+  const retryableErrors = [
+    'network_error',
+    'timeout_error',
+    'server_error',
+    'temporary_unavailable',
+    'interaction_in_progress'
+  ]
+  
+  return retryableErrors.some(errorType => 
+    error?.errorCode === errorType || 
+    error?.message?.includes(errorType)
+  )
+}
+
+/**
+ * Get error handling strategy
+ */
+export const getErrorHandlingStrategy = (error) => {
+  if (isInteractionError(error)) {
+    return {
+      strategy: 'wait_and_retry',
+      waitTime: 2000,
+      maxRetries: 3,
+      clearCache: true
+    }
+  }
+  
+  if (isMsalError(error, MSAL_ERRORS.USER_CANCELLED)) {
+    return {
+      strategy: 'user_cancelled',
+      waitTime: 0,
+      maxRetries: 0,
+      clearCache: false
+    }
+  }
+  
+  if (isRetryableError(error)) {
+    return {
+      strategy: 'retry',
+      waitTime: 1000,
+      maxRetries: 2,
+      clearCache: false
+    }
+  }
+  
+  return {
+    strategy: 'fail',
+    waitTime: 0,
+    maxRetries: 0,
+    clearCache: false
+  }
 }
 
 // =================================================================
@@ -184,4 +277,5 @@ if (import.meta.env.VITE_DEBUG_MODE === 'true') {
   console.log('Tenant ID:', import.meta.env.VITE_TENANT_ID)
   console.log('Site URL:', import.meta.env.VITE_SHAREPOINT_SITE_URL)
   console.log('Site ID for Graph:', getSiteId())
+  console.log('🔧 Enhanced interaction handling enabled')
 }
