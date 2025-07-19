@@ -32,6 +32,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [permissions, setPermissions] = useState([])
+  const [isAcquiringToken, setIsAcquiringToken] = useState(false)
+  const [tokenRequestQueue, setTokenRequestQueue] = useState([])
 
   // Authorization state - NEW
   const [authState, setAuthState] = useState(AUTH_STATES.LOADING)
@@ -115,12 +117,11 @@ export const AuthProvider = ({ children }) => {
   }, [checkInteractionStatus, clearInteractionState, instance])
 
   /**
-   * Sign in using popup - FIXED VERSION
+   * Sign in using popup - IMPROVED VERSION
    */
   const signIn = useCallback(async () => {
-    // Prevent multiple concurrent sign-in attempts
     if (isInteractionInProgress) {
-      console.warn('⚠️ Sign-in already in progress, ignoring duplicate request')
+      console.warn('⚠️ Sign-in already in progress')
       return
     }
 
@@ -129,61 +130,31 @@ export const AuthProvider = ({ children }) => {
       setLoading(true)
       setError(null)
       setAuthState(AUTH_STATES.LOADING)
-      
-      // Check if there's already an interaction in progress
-      const interactionInProgress = await checkInteractionStatus()
-      if (interactionInProgress) {
-        const resolved = await handleInteractionInProgress()
-        if (!resolved) {
-          throw new Error('Could not resolve existing authentication interaction')
-        }
-      }
-
-      // Clear any existing error state
-      setError(null)
-      setAuthorizationError(null)
-
-      // Set timeout to automatically clear interaction state
-      interactionTimeoutRef.current = setTimeout(() => {
-        console.warn('⚠️ Login timeout, clearing interaction state')
-        clearInteractionState()
-      }, 60000) // 60 second timeout
 
       console.log('🔐 Starting login popup...')
       const response = await instance.loginPopup(loginRequest)
       
-      if (response) {
+      if (response?.account) {
         console.log('✅ Login successful:', response.account.name)
-        clearTimeout(interactionTimeoutRef.current)
-        await acquireToken()
+        
+        // Set the active account immediately
+        instance.setActiveAccount(response.account)
+        
+        // Small delay to ensure MSAL state is fully updated
+        setTimeout(() => {
+          // This will trigger the useEffect above
+          setLoading(false)
+        }, 100)
       }
     } catch (error) {
       console.error('❌ Login failed:', error)
-      
-      // Handle specific MSAL errors
-      if (isMsalError(error, MSAL_ERRORS.INTERACTION_REQUIRED) || 
-          error.errorCode === 'interaction_in_progress') {
-        
-        console.log('🔄 Handling interaction in progress error...')
-        const resolved = await handleInteractionInProgress()
-        
-        if (resolved) {
-          // Try again after clearing the interaction
-          console.log('🔄 Retrying login after clearing interaction...')
-          setTimeout(() => {
-            signIn() // Retry after a brief delay
-          }, 2000)
-          return
-        }
-      }
-      
       handleAuthError(error)
       setAuthState(AUTH_STATES.UNAUTHORIZED)
-    } finally {
-      clearInteractionState()
       setLoading(false)
+    } finally {
+      setIsInteractionInProgress(false)
     }
-  }, [instance, isInteractionInProgress, checkInteractionStatus, handleInteractionInProgress, clearInteractionState])
+  }, [instance, isInteractionInProgress])
 
   /**
    * Sign out with proper cleanup - ENHANCED VERSION
@@ -228,31 +199,62 @@ export const AuthProvider = ({ children }) => {
     }
   }, [instance, user?.email, clearInteractionState])
 
-  /**
-   * Acquire access token silently or via popup - ENHANCED VERSION
+    /**
+   * Acquire access token with improved timing and deduplication
    */
   const acquireToken = useCallback(async (forceRefresh = false) => {
-    // Add a small delay to ensure account is available
-    if (!account) {
-      console.warn('⚠️ No account available for token acquisition, waiting...')
-      
-      // Wait a bit for account to be available after login
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      // Check again after delay
-      const currentAccount = instance.getActiveAccount() || accounts[0]
-      if (!currentAccount) {
-        console.warn('⚠️ Still no account available after delay')
-        return null
-      }
+    // Return existing token if valid and not forcing refresh
+    if (!forceRefresh && accessToken) {
+      return accessToken
     }
 
-    const targetAccount = account || instance.getActiveAccount() || accounts[0]
+    // Prevent multiple simultaneous requests
+    if (isAcquiringToken && !forceRefresh) {
+      console.log('🔐 Token acquisition in progress, waiting for completion...')
+      
+      // Wait for current acquisition to complete
+      return new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (!isAcquiringToken) {
+            clearInterval(checkInterval)
+            resolve(accessToken)
+          }
+        }, 100)
+        
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          clearInterval(checkInterval)
+          resolve(null)
+        }, 10000)
+      })
+    }
 
+    setIsAcquiringToken(true)
+    
     try {
+      // Get account from MSAL directly (more reliable than React state)
+      const currentAccount = instance.getActiveAccount() || 
+                            (accounts.length > 0 ? accounts[0] : null)
+
+      if (!currentAccount) {
+        // Wait briefly for MSAL to update its internal state
+        await new Promise(resolve => setTimeout(resolve, 1000))
+        
+        const retryAccount = instance.getActiveAccount() || 
+                            (accounts.length > 0 ? accounts[0] : null)
+        
+        if (!retryAccount) {
+          console.warn('⚠️ No account available for token acquisition')
+          return null
+        }
+        
+        console.log('🔐 Account found after retry')
+      }
+
+      const targetAccount = currentAccount || instance.getActiveAccount() || accounts[0]
       setError(null)
       
-      // Try silent token acquisition first
+      // Try silent token acquisition
       const silentRequest = createSilentRequest()
       silentRequest.account = targetAccount
       silentRequest.forceRefresh = forceRefresh
@@ -261,37 +263,18 @@ export const AuthProvider = ({ children }) => {
       
       if (response?.accessToken) {
         setAccessToken(response.accessToken)
-        console.log('🔐 Token acquired silently')
+        console.log('🔐 Token acquired successfully')
         return response.accessToken
       }
     } catch (error) {
-      console.warn('⚠️ Silent token acquisition failed:', error.message)
-      
-      // If silent fails, try interactive popup (but only if not in progress)
-      if ((isMsalError(error, MSAL_ERRORS.INTERACTION_REQUIRED) || 
-          isMsalError(error, MSAL_ERRORS.CONSENT_REQUIRED)) &&
-          !isInteractionInProgress) {
-        try {
-          setIsInteractionInProgress(true)
-          const response = await instance.acquireTokenPopup(loginRequest)
-          if (response?.accessToken) {
-            setAccessToken(response.accessToken)
-            console.log('🔐 Token acquired via popup')
-            return response.accessToken
-          }
-        } catch (popupError) {
-          console.error('❌ Interactive token acquisition failed:', popupError)
-          handleAuthError(popupError)
-        } finally {
-          setIsInteractionInProgress(false)
-        }
-      } else {
-        handleAuthError(error)
-      }
+      console.warn('⚠️ Token acquisition failed:', error.message)
+      handleAuthError(error)
+    } finally {
+      setIsAcquiringToken(false)
     }
 
     return null
-  }, [instance, account, accounts, isInteractionInProgress])
+  }, [instance, accounts, accessToken, isAcquiringToken])
 
   /**
    * Get a fresh access token (with automatic retry) - ENHANCED VERSION
@@ -437,37 +420,57 @@ export const AuthProvider = ({ children }) => {
   // =================================================================
 
   /**
-   * Initialize user data when account changes
+   * Initialize user data when account changes - IMPROVED VERSION
    */
   useEffect(() => {
-    if (isAuthenticated && account) {
-      console.log('👤 Setting user data for:', account.name)
-      
-      setUser({
-        id: account.localAccountId,
-        name: account.name,
-        email: account.username,
-        tenantId: account.tenantId,
-        homeAccountId: account.homeAccountId
-      })
+    let timeoutId
+    
+    const initializeUserData = async () => {
+      if (isAuthenticated) {
+        // Get the most current account
+        const currentAccount = instance.getActiveAccount() || 
+                              (accounts.length > 0 ? accounts[0] : null)
+        
+        if (currentAccount && currentAccount !== account) {
+          console.log('👤 Setting user data for:', currentAccount.name)
+          
+          setUser({
+            id: currentAccount.localAccountId,
+            name: currentAccount.name,
+            email: currentAccount.username,
+            tenantId: currentAccount.tenantId,
+            homeAccountId: currentAccount.homeAccountId
+          })
 
-      // Extract permissions from account (if available)
-      const accountPermissions = account.idTokenClaims?.roles || []
-      setPermissions(accountPermissions)
+          // Extract permissions from account
+          const accountPermissions = currentAccount.idTokenClaims?.roles || []
+          setPermissions(accountPermissions)
 
-      // Acquire initial token
-      acquireToken()
-    } else {
-      console.log('👤 Clearing user data - not authenticated')
-      setUser(null)
-      setAccessToken(null)
-      setPermissions([])
-      setUserRole(null)
-      setAuthorizationChecked(false)
-      setAuthorizationError(null)
-      setAuthState(AUTH_STATES.LOADING)
+          // Acquire token with a small delay to ensure account is fully set
+          timeoutId = setTimeout(() => {
+            acquireToken()
+          }, 500)
+        }
+      } else {
+        console.log('👤 Clearing user data - not authenticated')
+        setUser(null)
+        setAccessToken(null)
+        setPermissions([])
+        setUserRole(null)
+        setAuthorizationChecked(false)
+        setAuthorizationError(null)
+        setAuthState(AUTH_STATES.LOADING)
+      }
     }
-  }, [isAuthenticated, account, acquireToken])
+
+    initializeUserData()
+    
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    }
+  }, [isAuthenticated, instance, accounts, acquireToken])
 
   /**
    * Handle initial loading state
