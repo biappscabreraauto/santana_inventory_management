@@ -255,40 +255,9 @@ const TransactionHistory = () => {
               Showing {filteredTransactions.length} of {transactions.length} transactions
             </p>
           </div>
-          
-          {/* Role Badge */}
-          <div className="text-right sm:hidden">
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-              {userRole} Access
-            </span>
-            {isAdmin && (
-              <div className="mt-1 text-xs text-gray-500">Full System Access</div>
-            )}
-            {isUser && (
-              <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
-            )}
-            {isReadOnly && (
-              <div className="mt-1 text-xs text-gray-500">View Only Access</div>
-            )}
-          </div>
         </div>
         
         <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-          {/* Role Badge - Desktop */}
-          <div className="hidden sm:block text-right">
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-              {userRole} Access
-            </span>
-            {isAdmin && (
-              <div className="mt-1 text-xs text-gray-500">Full System Access</div>
-            )}
-            {isUser && (
-              <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
-            )}
-            {isReadOnly && (
-              <div className="mt-1 text-xs text-gray-500">View Only Access</div>
-            )}
-          </div>
           
           {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row gap-3">

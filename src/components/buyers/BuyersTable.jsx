@@ -259,20 +259,6 @@ const BuyersTable = () => {
           </p>
         </div>
         <div className="flex items-center space-x-4">
-          <div className="text-right">
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-              {userRole} Access
-            </span>
-            {isAdmin && (
-              <div className="mt-1 text-xs text-gray-500">Full Buyer Management + Bulk Delete</div>
-            )}
-            {isUser && (
-              <div className="mt-1 text-xs text-gray-500">Create, Edit, Search & Filter</div>
-            )}
-            {isReadOnly && (
-              <div className="mt-1 text-xs text-gray-500">View, Search & Communication Only</div>
-            )}
-          </div>
           
           {/* Add Buyer Button - User+ Access */}
           <RoleProtected requiredRole="User" hideIfUnauthorized>

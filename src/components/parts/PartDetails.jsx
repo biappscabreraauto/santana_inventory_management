@@ -315,11 +315,6 @@ const PartDetails = () => {
               </h1>
               <p className="text-gray-600 mt-1">{part.description}</p>
             </div>
-            <div className="flex items-center space-x-2">
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                {userRole} Access
-              </span>
-            </div>
           </div>
 
           {/* ACTION BUTTONS - Role-based access control */}

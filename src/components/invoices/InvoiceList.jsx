@@ -284,10 +284,6 @@ const InvoiceList = () => {
           <p className="text-gray-600">Manage customer invoices and sales</p>
         </div>
         <div className="flex items-center space-x-3">
-          {/* Role Badge */}
-          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-            {userRole} Access
-          </span>
           
           {/* Action Buttons - RBAC Protected */}
           <button

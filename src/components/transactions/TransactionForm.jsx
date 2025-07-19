@@ -264,21 +264,6 @@ const TransactionForm = () => {
         </div>
         
         <div className="flex items-center space-x-4">
-          {/* Role Badge */}
-          <div className="text-right">
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-              {userRole} Access
-            </span>
-            {isAdmin && (
-              <div className="mt-1 text-xs text-gray-500">Full System Access</div>
-            )}
-            {isUser && (
-              <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
-            )}
-            {isReadOnly && (
-              <div className="mt-1 text-xs text-gray-500">View Only Access</div>
-            )}
-          </div>
           
           <button
             onClick={handleCancel}

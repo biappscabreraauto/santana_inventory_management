@@ -234,20 +234,6 @@ const Dashboard = () => {
               <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
               <p className="text-gray-600 mt-2">Overview of your inventory management system</p>
             </div>
-            <div className="text-right">
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                {userRole} Access
-              </span>
-              {isAdmin && (
-                <div className="mt-1 text-xs text-gray-500">Full System Access</div>
-              )}
-              {isUser && (
-                <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
-              )}
-              {isReadOnly && (
-                <div className="mt-1 text-xs text-gray-500">View Only Access</div>
-              )}
-            </div>
           </div>
         </div>
 

@@ -191,21 +191,6 @@ const ExternalLookup = () => {
               Search for automotive parts across multiple external providers
             </p>
           </div>
-          <div className="text-right">
-            <div className="text-4xl mb-2">🔍</div>
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-              {userRole} Access
-            </span>
-            {isAdmin && (
-              <div className="mt-1 text-xs text-gray-500">Full System Access</div>
-            )}
-            {isUser && (
-              <div className="mt-1 text-xs text-gray-500">Standard User Access</div>
-            )}
-            {isReadOnly && (
-              <div className="mt-1 text-xs text-gray-500">Full External Search Access</div>
-            )}
-          </div>
         </div>
 
         {/* Main Search Form - Available to ALL users */}

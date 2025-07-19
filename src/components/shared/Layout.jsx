@@ -362,7 +362,7 @@ const Layout = ({ children }) => {
                 <div className="mt-1 text-xs text-gray-500">View Only Access</div>
               )}
             </div>
-            
+
             <button
               onClick={handleSignOut}
               className="w-full btn btn-outline text-left text-sm"
@@ -423,22 +423,6 @@ const Layout = ({ children }) => {
                 </div>
               )}
             </RoleProtected>
-
-            {/* Environment indicator */}
-            {import.meta.env.VITE_ENVIRONMENT !== 'production' && (
-              <div className="hidden sm:block">
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                  {import.meta.env.VITE_ENVIRONMENT?.toUpperCase() || 'DEV'}
-                </span>
-              </div>
-            )}
-
-            {/* User role indicator (desktop) */}
-            <div className="hidden md:block">
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                {userRole}
-              </span>
-            </div>
           </div>
         </header>
 
@@ -468,9 +452,6 @@ const Layout = ({ children }) => {
               {import.meta.env.VITE_DEBUG_MODE === 'true' && (
                 <span className="text-yellow-600">Debug Mode</span>
               )}
-              <span className="hidden sm:inline">
-                Logged in as {userRole}
-              </span>
             </div>
           </div>
         </footer>

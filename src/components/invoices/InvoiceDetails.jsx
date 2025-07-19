@@ -284,10 +284,6 @@ const InvoiceDetails = () => {
           </div>
           
           <div className="flex items-center space-x-3">
-            {/* Role Badge */}
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-              {userRole} Access
-            </span>
 
             {/* Status Badge */}
             <span className={`inline-flex px-3 py-1 text-sm font-medium rounded-full ${

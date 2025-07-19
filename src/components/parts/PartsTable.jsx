@@ -374,20 +374,11 @@ const PartsTable = () => {
         <div>
           <div className="flex items-center space-x-3 mb-2">
             <h1 className="text-2xl font-bold text-gray-900">Parts Inventory</h1>
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-              {userRole} Access
-            </span>
           </div>
           <p className="text-gray-600">
             Showing {filteredParts.length} of {parts.length} parts
             {familyFilter && ` in ${familyFilter} family`}
           </p>
-          {/* ACCESS CONTROL: Role-specific access info */}
-          <div className="mt-1 text-xs text-gray-500">
-            {isAdmin && "Full system access - can create, edit, and delete parts"}
-            {isUser && "Standard access - can create and edit parts"}
-            {isReadOnly && "View-only access - can search, filter, and export data"}
-          </div>
         </div>
         
         <div className="flex flex-col sm:flex-row gap-3">

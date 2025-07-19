@@ -40,6 +40,25 @@ const InvoiceForm = () => {
   const pageTitle = 'Create Invoice'
 
   // =================================================================
+  // PRICE LOOKUP FUNCTIONALITY - Add this section
+  // =================================================================
+  const searchPartPrices = useCallback((partId) => {
+    if (!partId || !canCreate) return;
+
+    // Search on eBay
+    const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(partId + ' automotive parts')}`;
+    
+    // Search on Amazon  
+    const amazonUrl = `https://www.amazon.com/s?k=${encodeURIComponent(partId + ' automotive parts')}`;
+
+    // Open both in new tabs
+    window.open(ebayUrl, '_blank', 'noopener,noreferrer');
+    window.open(amazonUrl, '_blank', 'noopener,noreferrer');
+    
+    success(`Price search opened for part: ${partId}`);
+  }, [canCreate, success]);
+
+  // =================================================================
   // SHAREPOINT HOOKS - CREATE-ONLY MODE
   // =================================================================
   const { 
@@ -396,9 +415,6 @@ const InvoiceForm = () => {
             </p>
           </div>
           <div className="text-right">
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-              {userRole} Access
-            </span>
             {!canCreate && (
               <div className="mt-1 text-xs text-red-600 flex items-center">
                 <AlertTriangle className="h-3 w-3 mr-1" />
@@ -655,33 +671,46 @@ const InvoiceForm = () => {
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Unit Price
                       </label>
-                      <div className="relative">
-                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
-                        <input
-                          type="text"
-                          value={item.unitPrice}
-                          onChange={(e) => {
-                            if (!canCreate) return;
-                            const value = e.target.value;
-                            // Allow only numbers and decimal point
-                            if (/^\d*\.?\d*$/.test(value) || value === '') {
-                              updateLineItem(index, 'unitPrice', value);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            if (!canCreate) return;
-                            // Format the value when user leaves the field
-                            const numValue = parseFloat(e.target.value) || 0;
-                            updateLineItem(index, 'unitPrice', numValue.toFixed(2));
-                          }}
-                          disabled={!canCreate}
-                          placeholder="0.00"
-                          className={`w-full pl-8 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                            !canCreate ? 'bg-gray-100 cursor-not-allowed' : ''
-                          }`}
-                          pattern="[0-9]*\.?[0-9]*"
-                          inputMode="decimal"
-                        />
+                      <div className="flex">
+                        <div className="relative flex-1">
+                          <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">$</span>
+                          <input
+                            type="text"
+                            value={item.unitPrice}
+                            onChange={(e) => {
+                              if (!canCreate) return;
+                              const value = e.target.value;
+                              // Allow only numbers and decimal point
+                              if (/^\d*\.?\d*$/.test(value) || value === '') {
+                                updateLineItem(index, 'unitPrice', value);
+                              }
+                            }}
+                            onBlur={(e) => {
+                              if (!canCreate) return;
+                              // Format the value when user leaves the field
+                              const numValue = parseFloat(e.target.value) || 0;
+                              updateLineItem(index, 'unitPrice', numValue.toFixed(2));
+                            }}
+                            disabled={!canCreate}
+                            placeholder="0.00"
+                            className={`w-full pl-8 pr-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                              !canCreate ? 'bg-gray-100 cursor-not-allowed' : ''
+                            }`}
+                            pattern="[0-9]*\.?[0-9]*"
+                            inputMode="decimal"
+                          />
+                        </div>
+                        
+                        {/* Price Lookup Button */}
+                        <button
+                          type="button"
+                          onClick={() => searchPartPrices(item.partId)}
+                          disabled={!item.partId || !canCreate}
+                          className="px-3 py-2 bg-gray-100 border border-l-0 border-gray-300 rounded-r-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          title="Search prices on eBay and Amazon"
+                        >
+                          <Search className="h-4 w-4 text-gray-600" />
+                        </button>
                       </div>
                     </div>
 
