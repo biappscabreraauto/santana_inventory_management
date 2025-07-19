@@ -232,17 +232,29 @@ export const AuthProvider = ({ children }) => {
    * Acquire access token silently or via popup - ENHANCED VERSION
    */
   const acquireToken = useCallback(async (forceRefresh = false) => {
+    // Add a small delay to ensure account is available
     if (!account) {
-      console.warn('⚠️ No account available for token acquisition')
-      return null
+      console.warn('⚠️ No account available for token acquisition, waiting...')
+      
+      // Wait a bit for account to be available after login
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Check again after delay
+      const currentAccount = instance.getActiveAccount() || accounts[0]
+      if (!currentAccount) {
+        console.warn('⚠️ Still no account available after delay')
+        return null
+      }
     }
+
+    const targetAccount = account || instance.getActiveAccount() || accounts[0]
 
     try {
       setError(null)
       
       // Try silent token acquisition first
       const silentRequest = createSilentRequest()
-      silentRequest.account = account
+      silentRequest.account = targetAccount
       silentRequest.forceRefresh = forceRefresh
 
       const response = await instance.acquireTokenSilent(silentRequest)
@@ -279,7 +291,7 @@ export const AuthProvider = ({ children }) => {
     }
 
     return null
-  }, [instance, account, isInteractionInProgress])
+  }, [instance, account, accounts, isInteractionInProgress])
 
   /**
    * Get a fresh access token (with automatic retry) - ENHANCED VERSION
