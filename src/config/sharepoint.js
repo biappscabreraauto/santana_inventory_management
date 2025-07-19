@@ -34,11 +34,13 @@ export const SHAREPOINT_CONFIG = {
     maxCacheSize: 100 // Maximum number of cached items
   },
   
-  // Query defaults
+  // Query defaults - UPDATED FOR PAGINATION
   query: {
-    defaultPageSize: 100,
-    maxPageSize: 500,
-    defaultOrderBy: 'Created desc'
+    defaultPageSize: 100, // Graph API default
+    maxPageSize: 5000, // Graph API maximum
+    maxItemsPerRequest: 10000, // Safety limit for our pagination
+    defaultOrderBy: 'Created desc',
+    enablePagination: true // New flag
   },
 
   // HYBRID SOLUTION: Enhanced configuration
@@ -48,7 +50,16 @@ export const SHAREPOINT_CONFIG = {
     autoFamilyLookup: true,
     cacheStrategy: 'aggressive', // 'conservative' | 'aggressive'
     fallbackCategory: 'Uncategorized'
+  },
+
+    // NEW: Pagination configuration
+  pagination: {
+    enabled: true,
+    maxItems: 10000, // Safety limit
+    batchSize: 200, // Process items in batches for UI updates
+    showProgress: true // Show pagination progress in console
   }
+
 }
 
 // =================================================================

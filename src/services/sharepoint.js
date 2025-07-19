@@ -367,12 +367,58 @@ class SharePointService {
     }
   }
 
+  /**
+   * Execute paginated Graph API request to get all items
+   * NEW METHOD: Handles pagination automatically
+   */
+  async executeGraphRequestWithPagination(graphClient, operation, operationName) {
+    try {
+      let allItems = [];
+      let response = await operation();
+      
+      // Add first page items
+      allItems = allItems.concat(response.value || []);
+      
+      // Follow pagination links
+      while (response['@odata.nextLink']) {
+        console.log(`📄 Fetching next page for ${operationName}... (${allItems.length} items so far)`);
+        
+        // Extract the continuation URL
+        const nextUrl = response['@odata.nextLink'];
+        
+        // Make request to next page
+        response = await graphClient.api(nextUrl).get();
+        
+        // Add items from this page
+        allItems = allItems.concat(response.value || []);
+        
+        // Safety check to prevent infinite loops
+        if (allItems.length > 10000) {
+          console.warn(`⚠️ Safety limit reached for ${operationName} - stopping at ${allItems.length} items`);
+          break;
+        }
+      }
+      
+      console.log(`✅ ${operationName} completed: Retrieved ${allItems.length} total items`);
+      
+      // Return response-like object with all items
+      return {
+        value: allItems,
+        '@odata.count': allItems.length
+      };
+      
+    } catch (error) {
+      console.error(`❌ ${operationName} failed:`, error);
+      throw error;
+    }
+  }
+
   // =================================================================
   // PARTS OPERATIONS
   // =================================================================
 
   /**
-   * Get all parts from SharePoint
+   * Get all parts from SharePoint - UPDATED WITH PAGINATION
    */
   async getParts(accessToken, options = {}) {
     const cacheKey = `parts_${JSON.stringify(options)}`;
@@ -396,16 +442,25 @@ class SharePointService {
           query = query.orderby(options.orderBy);
         }
 
-        if (options.top) {
+        // IMPORTANT: Remove or increase the $top parameter to allow pagination
+        // If options.top is set, use it, otherwise let Graph API use its default pagination
+        if (options.top && options.top <= 5000) {
           query = query.top(options.top);
         }
+        // Don't set a top limit to allow pagination to work
 
-        const response = await query.get();
+        // Use the new pagination method
+        const response = await this.executeGraphRequestWithPagination(
+          graphClient, 
+          () => query.get(),
+          'Get All Parts'
+        );
+        
         return response.value.map((item) =>
           transformSharePointItem(item, 'parts')
         );
       },
-      'Get Parts'
+      'Get Parts with Pagination'
     );
 
     this.setCache(cacheKey, result);
@@ -1205,7 +1260,7 @@ class SharePointService {
   // =================================================================
 
   /**
-   * Get transactions from SharePoint
+   * Get transactions from SharePoint - UPDATED WITH PAGINATION
    */
   async getTransactions(accessToken, options = {}) {
     const cacheKey = `transactions_${JSON.stringify(options)}`;
@@ -1231,16 +1286,21 @@ class SharePointService {
           query = query.orderby('fields/Created desc');
         }
 
-        if (options.top) {
+        if (options.top && options.top <= 5000) {
           query = query.top(options.top);
         }
 
-        const response = await query.get();
+        const response = await this.executeGraphRequestWithPagination(
+          graphClient, 
+          () => query.get(),
+          'Get All Transactions'
+        );
+        
         return response.value.map((item) =>
           transformSharePointItem(item, 'transactions')
         );
       },
-      'Get Transactions'
+      'Get Transactions with Pagination'
     );
 
     this.setCache(cacheKey, result);

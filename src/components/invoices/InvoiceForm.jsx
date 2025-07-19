@@ -45,15 +45,11 @@ const InvoiceForm = () => {
   const searchPartPrices = useCallback((partId) => {
     if (!partId || !canCreate) return;
 
-    // Search on eBay
-    const ebayUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(partId + ' automotive parts')}`;
+    // Search on RockAuto
+    const rockautoUrl = `https://www.rockauto.com/en/partsearch/?partnum=${encodeURIComponent(partId)}`;
     
-    // Search on Amazon  
-    const amazonUrl = `https://www.amazon.com/s?k=${encodeURIComponent(partId + ' automotive parts')}`;
-
     // Open both in new tabs
-    window.open(ebayUrl, '_blank', 'noopener,noreferrer');
-    window.open(amazonUrl, '_blank', 'noopener,noreferrer');
+    window.open(rockautoUrl, '_blank', 'noopener,noreferrer');
     
     success(`Price search opened for part: ${partId}`);
   }, [canCreate, success]);
@@ -707,7 +703,7 @@ const InvoiceForm = () => {
                           onClick={() => searchPartPrices(item.partId)}
                           disabled={!item.partId || !canCreate}
                           className="px-3 py-2 bg-gray-100 border border-l-0 border-gray-300 rounded-r-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                          title="Search prices on eBay and Amazon"
+                          title="Search prices on RockAuto"
                         >
                           <Search className="h-4 w-4 text-gray-600" />
                         </button>
