@@ -155,24 +155,40 @@ const InvoiceForm = () => {
   // NEW: OVERSELLING VALIDATION - RBAC Protected
   // =================================================================
   const validateInventoryLevels = useCallback(async () => {
-    // Only validate if user can create invoices
     if (!canCreate) return []
 
     const stockErrors = [];
+    let totalStockValue = 0;
     
     for (const item of lineItems) {
       const part = parts.find(p => p.partId === item.partId);
       if (!part) {
-        stockErrors.push(`Part ${item.partId} not found`);
+        stockErrors.push(`❌ Part ${item.partId} not found in system`);
         continue;
       }
       
+      // ENHANCED: More detailed validation with business context
       if (part.inventoryOnHand < item.quantity) {
+        const shortage = item.quantity - part.inventoryOnHand;
         stockErrors.push(
-          `${item.partId}: Stock ${part.inventoryOnHand}, Required ${item.quantity}`
+          `⚠️ ${item.partId}: Insufficient stock (${shortage} units short) - Available: ${part.inventoryOnHand}, Required: ${item.quantity}`
+        );
+      } else if (part.inventoryOnHand === item.quantity) {
+        // Warn about complete depletion
+        stockErrors.push(
+          `📊 ${item.partId}: This sale will completely deplete inventory (${part.inventoryOnHand} → 0)`
         );
       }
+      
+      // Track total value for additional validation
+      totalStockValue += (part.inventoryOnHand * (part.unitCost || 0));
     }
+    
+    // Additional business rule: Warn for high-value transactions
+    const invoiceValue = lineItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
+    // if (invoiceValue > totalStockValue * 0.1) { // More than 10% of total inventory value
+    //   stockErrors.push(`💰 High-value transaction alert: Invoice value $${invoiceValue.toFixed(2)} represents significant portion of inventory`);
+    // }
     
     return stockErrors;
   }, [lineItems, parts, canCreate]);

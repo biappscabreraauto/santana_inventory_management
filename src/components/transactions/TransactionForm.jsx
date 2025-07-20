@@ -1,12 +1,13 @@
 // =================================================================
-// COMPLETE REVISED TRANSACTION FORM - FIXED CALCULATIONS WITH RBAC
+// COMPLETE REVISED TRANSACTION FORM - WITH SEARCH/AUTOCOMPLETE
 // =================================================================
 // Component for logging inbound inventory movements and adjustments
 // Fixed price/cost calculations based on movement type
-// Enhanced with role-based access control
+// Enhanced with role-based access control and search-based part selection
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { Search } from 'lucide-react' // Added for search icon
 import { useToast } from '../../context/ToastContext'
 import { useAuth } from '../../context/AuthContext'
 import { useRoleAccess } from '../../hooks/useRoleAccess'
@@ -52,7 +53,7 @@ const TransactionForm = () => {
   const preselectedPartId = searchParams.get('partId')
 
   // =================================================================
-  // FORM STATE
+  // FORM STATE - ENHANCED WITH SEARCH
   // =================================================================
   const [formData, setFormData] = useState({
     partId: preselectedPartId || '',
@@ -65,8 +66,66 @@ const TransactionForm = () => {
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
 
+  // SEARCH STATE - NEW
+  const [partSearch, setPartSearch] = useState('')
+  const [showPartDropdown, setShowPartDropdown] = useState(false)
+  const [filteredParts, setFilteredParts] = useState([])
+
   // Get selected part details
   const selectedPart = parts.find(part => part.partId === formData.partId)
+
+  // =================================================================
+  // SEARCH FUNCTIONALITY - NEW
+  // =================================================================
+  
+  // Handle part search input
+  const handlePartSearch = (searchValue) => {
+    setPartSearch(searchValue)
+    
+    if (searchValue.length >= 1) {
+      const filtered = parts
+        .filter((part, index, self) => 
+          // Remove duplicates by partId - keep first occurrence
+          index === self.findIndex(p => p.partId === part.partId)
+        )
+        .filter(part => 
+          part.partId.toLowerCase().includes(searchValue.toLowerCase()) ||
+          part.description.toLowerCase().includes(searchValue.toLowerCase())
+        )
+        .slice(0, 10) // Limit results for performance
+      
+      setFilteredParts(filtered)
+      setShowPartDropdown(filtered.length > 0)
+    } else {
+      setFilteredParts([])
+      setShowPartDropdown(false)
+    }
+  }
+
+  // Select a part from search results
+  const selectPart = (part) => {
+    setFormData(prev => ({
+      ...prev,
+      partId: part.partId
+    }))
+    setPartSearch(`${part.partId} - ${part.description}`)
+    setShowPartDropdown(false)
+    
+    // Clear any existing errors
+    if (errors.partId) {
+      setErrors(prev => ({ ...prev, partId: '' }))
+    }
+  }
+
+  // Initialize search field with preselected part
+  useEffect(() => {
+    if (preselectedPartId && parts.length > 0) {
+      const preselectedPart = parts.find(part => part.partId === preselectedPartId)
+      if (preselectedPart) {
+        setPartSearch(`${preselectedPart.partId} - ${preselectedPart.description}`)
+      }
+    }
+  }, [preselectedPartId, parts])
 
   // =================================================================
   // CALCULATED VALUES - FIXED FOR DIFFERENT MOVEMENT TYPES
@@ -119,6 +178,8 @@ const TransactionForm = () => {
       quantityColor: 'text-gray-600'
     }
   }
+
+  const transactionTypeInfo = getTransactionTypeInfo()
 
   // =================================================================
   // HANDLERS
@@ -212,12 +273,11 @@ const TransactionForm = () => {
       const actionText = formData.movementType === 'In (Received)' ? 'Added' : 
                         formData.movementType === 'Out (Sold)' ? 'Removed' : 'Adjusted'
       
-      success(`Transaction logged successfully! ${actionText} ${formData.quantity} units.`)
+      success(`Transaction logged successfully! ${actionText} ${formData.quantity} units of ${formData.partId}.`)
       navigate('/transactions')
-      
     } catch (err) {
-      console.error('Error creating transaction:', err)
-      error('Failed to log transaction. Please try again.')
+      console.error('Transaction creation error:', err)
+      error(err.message || 'An error occurred while logging the transaction')
     } finally {
       setSaving(false)
     }
@@ -241,50 +301,29 @@ const TransactionForm = () => {
     )
   }
 
-  const transactionTypeInfo = getTransactionTypeInfo()
-
   // =================================================================
-  // RENDER
+  // MAIN RENDER
   // =================================================================
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      {/* Header with Role Badge */}
+    <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            {formData.movementType === 'In (Received)' ? 'Log Inbound Parts' :
-             formData.movementType === 'Out (Sold)' ? 'Log Outbound Parts' :
-             'Log Inventory Adjustment'}
-          </h1>
-          <p className="text-gray-600">
-            {formData.movementType === 'In (Received)' ? 'Record received inventory from suppliers' :
-             formData.movementType === 'Out (Sold)' ? 'Record sold inventory to customers' :
-             'Record manual inventory adjustments'}
-          </p>
-        </div>
-        
-        <div className="flex items-center space-x-4">
-          
-          <button
-            onClick={handleCancel}
-            className="btn btn-secondary"
-          >
-            Back to Transactions
-          </button>
+          <h1 className="text-2xl font-bold text-gray-900">Log Transaction</h1>
+          <p className="text-gray-600">Record inventory movements and adjustments</p>
         </div>
       </div>
 
-      {/* ReadOnly Access Notice */}
+      {/* Access Denied Notice for ReadOnly */}
       {isReadOnly && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
           <div className="flex items-center">
-            <div className="text-yellow-600 mr-2">⚠️</div>
+            <div className="text-amber-600 mr-3">⚠️</div>
             <div>
-              <span className="text-sm font-medium text-yellow-800">
-                View Only Access
-              </span>
-              <p className="text-sm text-yellow-700">
-                You can view the transaction form but cannot create new transactions. Contact an administrator for access.
+              <h3 className="text-sm font-medium text-amber-900">Read-Only Access</h3>
+              <p className="text-sm text-amber-700">
+                You can view this form but cannot create transactions. 
+                Contact an administrator for access.
               </p>
             </div>
           </div>
@@ -336,34 +375,72 @@ const TransactionForm = () => {
             </p>
           </div>
 
-          {/* Part Selection - RBAC: ReadOnly can see but not modify */}
+          {/* Part Selection - ENHANCED WITH SEARCH/AUTOCOMPLETE */}
           <div>
             <label htmlFor="partId" className="block text-sm font-medium text-gray-700 mb-1">
               Part *
             </label>
-            <select
-              id="partId"
-              name="partId"
-              value={formData.partId}
-              onChange={handleInputChange}
-              disabled={isReadOnly}
-              className={`input ${errors.partId ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''} ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
-            >
-              <option value="">Select a part...</option>
-              {parts
-                .filter((part, index, self) => 
-                  // Remove duplicates by partId - keep first occurrence
-                  index === self.findIndex(p => p.partId === part.partId)
-                )
-                .map(part => (
-                  <option key={`${part.id}-${part.partId}`} value={part.partId}>
-                    {part.partId} - {part.description} 
-                    (Cost: ${part.unitCost?.toFixed(2) || '0.00'}, 
-                     Price: ${part.unitPrice?.toFixed(2) || '0.00'})
-                  </option>
-                ))
-              }
-            </select>
+            
+            <div className="relative">
+              {/* Search Input */}
+              <input
+                type="text"
+                id="partId"
+                value={partSearch}
+                onChange={(e) => !isReadOnly && handlePartSearch(e.target.value)}
+                onFocus={() => !isReadOnly && partSearch.length >= 1 && setShowPartDropdown(filteredParts.length > 0)}
+                onBlur={() => setTimeout(() => setShowPartDropdown(false), 200)} // Delay to allow click
+                disabled={isReadOnly}
+                className={`w-full px-3 py-2 pr-8 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                  errors.partId ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''
+                } ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
+                placeholder={isReadOnly ? "Part search disabled" : "Search by Part ID or description..."}
+              />
+              
+              {/* Search Icon */}
+              <Search className="absolute right-3 top-2.5 h-4 w-4 text-gray-400" />
+              
+              {/* Dropdown Results */}
+              {!isReadOnly && showPartDropdown && filteredParts.length > 0 && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto">
+                  {filteredParts.map(part => (
+                    <div
+                      key={`${part.id}-${part.partId}`}
+                      onClick={() => selectPart(part)}
+                      className="px-3 py-2 hover:bg-gray-100 cursor-pointer"
+                    >
+                      <div className="font-medium">{part.partId}</div>
+                      <div className="text-sm text-gray-600">{part.description}</div>
+                      <div className="text-sm text-gray-500">
+                        Stock: {part.inventoryOnHand} | 
+                        Cost: ${part.unitCost?.toFixed(2) || '0.00'} | 
+                        Price: ${part.unitPrice?.toFixed(2) || '0.00'}
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Show message if search has results but they're limited */}
+                  {parts.filter(p => 
+                    p.partId.toLowerCase().includes(partSearch.toLowerCase()) ||
+                    p.description.toLowerCase().includes(partSearch.toLowerCase())
+                  ).length > 10 && (
+                    <div className="px-3 py-2 text-sm text-gray-500 bg-gray-50 border-t">
+                      Showing first 10 results. Type more to narrow search.
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* No Results Message */}
+              {!isReadOnly && showPartDropdown && filteredParts.length === 0 && partSearch.length >= 1 && (
+                <div className="absolute z-20 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg">
+                  <div className="px-3 py-2 text-sm text-gray-500">
+                    No parts found matching "{partSearch}"
+                  </div>
+                </div>
+              )}
+            </div>
+            
             {errors.partId && (
               <p className="mt-1 text-sm text-red-600">{errors.partId}</p>
             )}
@@ -396,18 +473,10 @@ const TransactionForm = () => {
                   </div>
                 </div>
               </div>
-              <div className="mt-2">
-                <span className="text-gray-600 font-medium">Description:</span>
-                <div className="text-gray-900">{selectedPart.description}</div>
-              </div>
-              <div className="mt-2">
-                <span className="text-gray-600 font-medium">Category:</span>
-                <div className="text-gray-900">{selectedPart.category}</div>
-              </div>
             </div>
           )}
 
-          {/* Quantity - RBAC: ReadOnly can see but not modify */}
+          {/* Quantity Input - RBAC: ReadOnly can see but not modify */}
           <div>
             <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 mb-1">
               Quantity *
@@ -421,7 +490,7 @@ const TransactionForm = () => {
               disabled={isReadOnly}
               min="1"
               step="1"
-              placeholder="0"
+              placeholder="Enter quantity"
               className={`input ${errors.quantity ? 'border-red-300 focus:ring-red-500 focus:border-red-500' : ''} ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
             />
             {errors.quantity && (
@@ -429,10 +498,10 @@ const TransactionForm = () => {
             )}
           </div>
 
-          {/* Date - RBAC: ReadOnly can see but not modify */}
+          {/* Receipt Date - RBAC: ReadOnly can see but not modify */}
           <div>
             <label htmlFor="receiptDate" className="block text-sm font-medium text-gray-700 mb-1">
-              Transaction Date *
+              Date *
             </label>
             <input
               type="date"
@@ -448,11 +517,11 @@ const TransactionForm = () => {
             )}
           </div>
 
-          {/* Supplier - CONDITIONAL DISPLAY - RBAC: ReadOnly can see but not modify */}
+          {/* Supplier Input - Only for In transactions, RBAC: ReadOnly can see but not modify */}
           {(formData.movementType === 'In (Received)' || formData.movementType === 'Adjustment') && (
             <div>
               <label htmlFor="supplier" className="block text-sm font-medium text-gray-700 mb-1">
-                Supplier <span className="text-gray-500">(Optional)</span>
+                Supplier {formData.movementType === 'In (Received)' ? '' : '(Optional)'}
               </label>
               <input
                 type="text"
@@ -461,7 +530,7 @@ const TransactionForm = () => {
                 value={formData.supplier}
                 onChange={handleInputChange}
                 disabled={isReadOnly}
-                placeholder="e.g., Parts Warehouse Inc"
+                placeholder="Enter supplier name"
                 className={`input ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
               />
             </div>
@@ -470,7 +539,7 @@ const TransactionForm = () => {
           {/* Notes - RBAC: ReadOnly can see but not modify */}
           <div>
             <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">
-              Notes <span className="text-gray-500">(Optional)</span>
+              Notes (Optional)
             </label>
             <textarea
               id="notes"
@@ -479,7 +548,7 @@ const TransactionForm = () => {
               onChange={handleInputChange}
               disabled={isReadOnly}
               rows={3}
-              placeholder="Additional notes about this transaction..."
+              placeholder="Add any additional notes about this transaction"
               className={`input ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}
             />
           </div>
@@ -588,6 +657,7 @@ const TransactionForm = () => {
                 <p>• <strong>Outbound transactions:</strong> Use unit price for revenue calculation</p>
                 <p>• <strong>Adjustments:</strong> Use unit cost for inventory correction</p>
                 <p>• <strong>Inventory levels:</strong> Updated automatically after transaction</p>
+                <p>• <strong>Search tip:</strong> Type part ID or description to quickly find parts</p>
                 {isReadOnly && (
                   <p>• <strong>View Only:</strong> You can view transaction details but cannot create new transactions</p>
                 )}

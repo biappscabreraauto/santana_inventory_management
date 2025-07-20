@@ -115,7 +115,9 @@ const PartForm = () => {
       case 'notes':
         return canEdit || canCreate
       case 'unitCost':
-        return isAdmin // Admin only fields
+      // Creation mode: both Admin and User can set unit cost
+      // Edit mode: only Admin can modify unit cost
+        return isAdmin || (!isEditMode && isUser)
       case 'status':
         return isAdmin // Admin only fields
       case 'inventoryOnHand':
@@ -735,7 +737,11 @@ const PartForm = () => {
             <div>
               <label htmlFor="unitCost" className="block text-sm font-medium text-gray-700 mb-1">
                 Unit Cost ($)
-                {!canEditField('unitCost') && <span className="text-amber-600 ml-2">(Admin Only)</span>}
+                {!canEditField('unitCost') && (
+                  <span className="text-amber-600 ml-2">
+                    {isEditMode ? "(Admin Only)" : "(User+ Required)"}
+                  </span>
+                )}
               </label>
               {canEditField('unitCost') ? (
                 <input

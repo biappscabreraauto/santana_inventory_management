@@ -9,7 +9,8 @@
 | Part ID input (edit - disabled) | Form Inputs | Display Field | ✅ | ✅ | ✅ |
 | Description input | Form Inputs | Text Input | ✅ | ✅ | ❌ |
 | Category dropdown | Form Inputs | Dropdown Selection | ✅ | ✅ | ❌ |
-| Unit Cost input | Form Inputs | Numeric Input | ✅ | ❌ | ❌ |
+| Unit Cost input (create) | Form Inputs | Numeric Input | ✅ | ✅ | ❌ |
+| Unit Cost input (edit) | Form Inputs | Numeric Input | ✅ | ❌ | ❌ |
 | Unit Price input | Form Inputs | Numeric Input | ✅ | ✅ | ❌ |
 | Inventory On Hand input (create only) | Form Inputs | Numeric Input | ✅ | ✅ | ❌ |
 | Status dropdown | Form Inputs | Dropdown Selection | ✅ | ❌ | ❌ |
@@ -31,9 +32,9 @@
 - Can create and modify parts
 - All system behaviors active
 
-### User Access (18/18 points) 
-- **Full access** to all editing points
-- Can create and modify parts
+### User Access (17/18 points) 
+- **Standard operations** - can set initial cost during creation
+- **Cannot modify cost** during editing for data integrity
 - All system behaviors active
 
 ### ReadOnly Access (7/18 points)

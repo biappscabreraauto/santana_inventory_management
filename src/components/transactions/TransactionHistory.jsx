@@ -432,72 +432,80 @@ const TransactionHistory = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredTransactions.map((transaction) => (
-                  <tr key={transaction.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatDate(transaction.created)}
-                    </td>
-                    {/* Part ID Link - RBAC: Available to all users */}
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Link
-                        to={`/parts?search=${transaction.partId}`}
-                        className="text-blue-600 hover:text-blue-800 font-medium"
-                      >
-                        {transaction.partId}
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                        isInventoryIncrease(transaction.movementType) 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {transaction.movementType}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <span className={isInventoryIncrease(transaction.movementType) ? 'text-green-600' : 'text-red-600'}>
-                        {isInventoryIncrease(transaction.movementType) ? '+' : '-'}{transaction.quantity}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      <div className="flex flex-col">
-                        <span className="font-medium">
-                          {formatCurrency(getUnitValue(transaction))}
-                        </span>
-                        <span className="text-xs text-gray-500">
-                          {getUnitValueLabel(transaction)}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      {formatCurrency(getTransactionTotal(transaction))}
-                    </td>
-                    {/* Invoice Link - RBAC: Available to all users */}
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {transaction.invoice && (
-                        <Link 
-                          to={`/invoices/${transaction.invoice}`}
-                          className="text-blue-600 hover:text-blue-800"
+                {filteredTransactions.map((transaction, index) => {
+                  // ================================================================
+                  // ROBUST UNIQUE KEY SOLUTION
+                  // ================================================================
+                  // Create composite key from multiple unique fields to prevent React key duplication warnings
+                  const uniqueKey = `${transaction.id || 'no-id'}-${transaction.partId || 'no-part'}-${new Date(transaction.created).getTime()}-${index}`;
+                  
+                  return (
+                    <tr key={uniqueKey} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {formatDate(transaction.created)}
+                      </td>
+                      {/* Part ID Link - RBAC: Available to all users */}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Link
+                          to={`/parts/${transaction.partId}`}
+                          className="text-blue-600 hover:text-blue-800 font-medium"
                         >
-                          {transaction.invoice}
+                          {transaction.partId}
                         </Link>
-                      )}
-                      {!transaction.invoice && transaction.supplier && (
-                        <span className="text-gray-600">{transaction.supplier}</span>
-                      )}
-                      {!transaction.invoice && !transaction.supplier && (
-                        <span className="text-gray-400">Manual</span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                      {transaction.notes || '-'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {transaction.createdBy || 'System'}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                          isInventoryIncrease(transaction.movementType) 
+                            ? 'bg-green-100 text-green-800' 
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {transaction.movementType}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <span className={isInventoryIncrease(transaction.movementType) ? 'text-green-600' : 'text-red-600'}>
+                          {isInventoryIncrease(transaction.movementType) ? '+' : '-'}{transaction.quantity}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <div className="flex flex-col">
+                          <span className="font-medium">
+                            {formatCurrency(getUnitValue(transaction))}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {getUnitValueLabel(transaction)}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {formatCurrency(getTransactionTotal(transaction))}
+                      </td>
+                      {/* Invoice Link - RBAC: Available to all users */}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {transaction.invoice && (
+                          <Link 
+                            to={`/invoices/${transaction.invoice}`}
+                            className="text-blue-600 hover:text-blue-800"
+                          >
+                            {transaction.invoice}
+                          </Link>
+                        )}
+                        {!transaction.invoice && transaction.supplier && (
+                          <span className="text-gray-600">{transaction.supplier}</span>
+                        )}
+                        {!transaction.invoice && !transaction.supplier && (
+                          <span className="text-gray-400">Manual</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
+                        {transaction.notes || '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {transaction.createdBy || 'System'}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

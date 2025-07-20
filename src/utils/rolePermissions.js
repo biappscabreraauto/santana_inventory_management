@@ -160,7 +160,8 @@ export const FIELD_PERMISSIONS = {
     partId: ['create_parts', 'edit_parts'],
     description: ['edit_part_description'],
     category: ['edit_part_category'],
-    unitCost: ['edit_part_unit_cost'], // Admin only
+    unitCostCreate: ['create_parts'], // User can set during creation
+    unitCostEdit: ['edit_part_unit_cost'], // Admin only for editing
     unitPrice: ['edit_part_unit_price'],
     inventoryOnHand: ['create_parts'], // Create only
     status: ['edit_part_status'], // Admin only

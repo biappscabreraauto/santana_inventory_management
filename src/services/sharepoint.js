@@ -1337,7 +1337,12 @@ class SharePointService {
 
   /**
    * Create new transaction in SharePoint and update inventory levels
-   * FIXED: Now properly updates part inventory after transaction creation
+   * REVISED: Implements all 5 critical improvements for enterprise-grade reliability
+   * - Pre-transaction validation (Item 3)
+   * - Negative inventory prevention (Item 1) 
+   * - Optimistic locking with ETags (Item 2)
+   * - Compensating transaction support (Item 4)
+   * - Enhanced error handling and logging
    */
   async createTransaction(accessToken, transactionData) {
     const graphClient = createGraphClient(accessToken);
@@ -1345,42 +1350,193 @@ class SharePointService {
     const result = await this.executeGraphRequest(
       graphClient,
       async () => {
-        console.log('Creating transaction with data:', transactionData);
+        console.log('🔄 Creating transaction with enhanced validation:', transactionData);
 
-        // Step 1: Create the transaction record
-        const sharePointData = transformToSharePoint(transactionData, 'transactions');
-        const transactionResponse = await graphClient
-          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.transactions}/items`)
-          .post({
-            fields: sharePointData,
-          });
+        // ================================================================
+        // ITEM 3: PRE-TRANSACTION VALIDATION (CRITICAL)
+        // ================================================================
+        // Validate ALL business rules BEFORE any SharePoint operations
+        const validatedPart = await this.validateTransactionRequest(accessToken, transactionData);
+        console.log('✅ Transaction validation passed for part:', validatedPart.partId);
 
-        console.log('✅ Transaction created successfully:', transactionResponse.id);
+        // ================================================================
+        // TRANSACTION EXECUTION WITH FAILURE RECOVERY
+        // ================================================================
+        let transactionRecord = null;
+        let inventoryUpdateResult = null;
 
-        // Step 2: Update the part's inventory level
-        await this.updatePartInventory(accessToken, transactionData.partId, transactionData.movementType, transactionData.quantity);
+        try {
+          // Step 1: Create the transaction record first
+          console.log('📝 Creating transaction record in SharePoint...');
+          const sharePointData = transformToSharePoint(transactionData, 'transactions');
+          
+          transactionRecord = await graphClient
+            .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.transactions}/items`)
+            .post({
+              fields: sharePointData,
+            });
 
-        return transformSharePointItem(transactionResponse, 'transactions');
-      },
-      'Create Transaction and Update Inventory'
+          console.log('✅ Transaction record created successfully:', transactionRecord.id);
+
+          // Step 2: Update part inventory with enhanced validation and concurrency control
+          console.log('📦 Updating part inventory with enhanced logic...');
+          inventoryUpdateResult = await this.updatePartInventory(
+            accessToken, 
+            transactionData.partId, 
+            transactionData.movementType, 
+            transactionData.quantity
+          );
+
+          console.log('✅ Both transaction and inventory update completed successfully');
+          console.log('📊 Inventory change:', inventoryUpdateResult);
+
+          // Return the complete transaction with inventory update details
+          const completeTransaction = {
+            ...transformSharePointItem(transactionRecord, 'transactions'),
+            inventoryUpdate: inventoryUpdateResult
+          };
+
+          return completeTransaction;
+
+        } catch (error) {
+          console.error('❌ Transaction execution failed:', error.message);
+
+          // ================================================================
+          // ITEM 4: COMPENSATING TRANSACTION SUPPORT (FAILURE RECOVERY)
+          // ================================================================
+          if (transactionRecord && !inventoryUpdateResult) {
+            console.error('🔄 Inventory update failed after transaction creation. Implementing compensating transaction...');
+            
+            try {
+              // Mark the transaction as failed with detailed error information
+              await graphClient
+                .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.transactions}/items/${transactionRecord.id}`)
+                .patch({
+                  fields: {
+                    Notes: `FAILED: ${transactionData.notes || ''} | Error: ${error.message} | Timestamp: ${new Date().toISOString()}`,
+                    MovementType: `FAILED - ${transactionData.movementType}`
+                  }
+                });
+              
+              console.log('✅ Compensating transaction completed - transaction marked as failed');
+              console.log('📋 Failed transaction ID for manual review:', transactionRecord.id);
+              
+            } catch (compensatingError) {
+              console.error('❌ Compensating transaction also failed:', compensatingError);
+              // Log the orphaned transaction for manual cleanup
+              console.error('🚨 ORPHANED TRANSACTION ALERT:', {
+                transactionId: transactionRecord.id,
+                partId: transactionData.partId,
+                movementType: transactionData.movementType,
+                quantity: transactionData.quantity,
+                originalError: error.message,
+                compensatingError: compensatingError.message,
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+          
+          // Re-throw the original error with enhanced context
+          throw new Error(
+            `Transaction failed for part ${transactionData.partId}: ${error.message}. ` +
+            `${transactionRecord ? `Transaction record ${transactionRecord.id} has been marked as failed.` : 'No transaction record was created.'}`
+          );
+        }
+      }
     );
 
+    // Clear cache to ensure fresh data on next load
     this.clearCache();
     return result;
   }
 
   /**
-   * Update part inventory levels based on transaction
-   * CRITICAL METHOD: Updates InventoryOnHand field in Parts list
+   * ITEM 3: Pre-transaction validation method
+   * Validates ALL business rules before ANY SharePoint modifications
    */
-  async updatePartInventory(accessToken, partId, movementType, quantity) {
+  async validateTransactionRequest(accessToken, transactionData) {
+    console.log('🔍 Validating transaction request:', transactionData);
+
+    // Validate part exists
+    const part = await this.getPartByPartId(accessToken, transactionData.partId);
+    if (!part) {
+      throw new Error(`Validation failed: Part ${transactionData.partId} not found`);
+    }
+
+    // Validate quantity
+    if (!transactionData.quantity || transactionData.quantity <= 0) {
+      throw new Error(`Validation failed: Quantity must be greater than 0`);
+    }
+
+    // CRITICAL: Validate inventory availability for outbound transactions
+    if (transactionData.movementType === 'Out (Sold)') {
+      if (part.inventoryOnHand < transactionData.quantity) {
+        throw new Error(
+          `Validation failed: Insufficient inventory for ${transactionData.partId}. ` +
+          `Requested: ${transactionData.quantity}, Available: ${part.inventoryOnHand}`
+        );
+      }
+    }
+
+    // Validate pricing requirements
+    if ((transactionData.movementType === 'In (Received)' || transactionData.movementType === 'Adjustment') && 
+        (!part.unitCost || part.unitCost <= 0)) {
+      throw new Error(`Validation failed: Part ${transactionData.partId} requires valid unit cost for inbound transactions`);
+    }
+
+    if (transactionData.movementType === 'Out (Sold)' && (!part.unitPrice || part.unitPrice <= 0)) {
+      throw new Error(`Validation failed: Part ${transactionData.partId} requires valid unit price for outbound transactions`);
+    }
+
+    console.log('✅ Transaction validation passed');
+    return part; // Return part data for use in transaction
+  }
+
+  /**
+   * ITEM 2: Enhanced part retrieval with ETag for optimistic locking
+   * SharePoint compatible - uses native ETag support
+   */
+  async getPartByPartIdWithETag(accessToken, partId) {
     const graphClient = createGraphClient(accessToken);
 
     try {
-      console.log(`🔄 Updating inventory for part ${partId}: ${movementType} ${quantity} units`);
+      const response = await graphClient
+        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items`)
+        .filter(`fields/Title eq '${partId}'`)
+        .expand('fields')
+        .top(1)
+        .get();
 
-      // Step 1: Get current part data
-      const currentPart = await this.getPartByPartId(accessToken, partId);
+      if (response.value && response.value.length > 0) {
+        const item = response.value[0];
+        return {
+          ...transformSharePointItem(item, 'parts'),
+          eTag: item['@odata.etag'] || item.eTag, // SharePoint provides ETag
+          sharepointId: item.id
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`Failed to get part with ETag ${partId}:`, error);
+      throw error;
+    }
+  }
+
+
+  /**
+   * ITEM 1 & 2: Enhanced inventory update with negative prevention and concurrency control
+   * CRITICAL METHOD: Updates InventoryOnHand field with enterprise-grade reliability
+   */
+  async updatePartInventory(accessToken, partId, movementType, quantity, retryCount = 0) {
+    const graphClient = createGraphClient(accessToken);
+    const MAX_RETRIES = 3;
+
+    try {
+      console.log(`🔄 Updating inventory for part ${partId}: ${movementType} ${quantity} units (attempt ${retryCount + 1})`);
+
+      // Step 1: Get current part data WITH ETag for concurrency control
+      const currentPart = await this.getPartByPartIdWithETag(accessToken, partId);
       if (!currentPart) {
         throw new Error(`Part ${partId} not found`);
       }
@@ -1388,7 +1544,20 @@ class SharePointService {
       const currentInventory = currentPart.inventoryOnHand || 0;
       console.log(`📦 Current inventory for ${partId}: ${currentInventory} units`);
 
-      // Step 2: Calculate new inventory level
+      // ================================================================
+      // ITEM 1: ENHANCED NEGATIVE INVENTORY PREVENTION (CRITICAL)
+      // ================================================================
+      // Validate inventory availability BEFORE calculation for outbound transactions
+      if (movementType === 'Out (Sold)') {
+        if (currentInventory < quantity) {
+          throw new Error(
+            `Insufficient inventory for ${partId}: ${quantity} requested, ${currentInventory} available. ` +
+            `Transaction rejected to maintain data integrity.`
+          );
+        }
+      }
+
+      // Step 2: Calculate new inventory level (only after validation)
       let newInventory;
       if (movementType === 'In (Received)' || movementType === 'Adjustment' || movementType === 'Void adjustment') {
         newInventory = currentInventory + quantity;
@@ -1400,34 +1569,54 @@ class SharePointService {
         throw new Error(`Unknown movement type: ${movementType}`);
       }
 
-      // Prevent negative inventory
+      // Final safety check (should never trigger after validation above)
       if (newInventory < 0) {
-        console.warn(`⚠️ Inventory would go negative for ${partId}: ${newInventory}. Setting to 0.`);
-        newInventory = 0;
+        throw new Error(`System error: Inventory calculation resulted in negative value for ${partId}. This should not happen after validation.`);
       }
 
-      // Step 3: Update the part's inventory in SharePoint
+      // ================================================================
+      // ITEM 2: OPTIMISTIC LOCKING WITH ETAGS (CONCURRENCY PROTECTION)
+      // ================================================================
+      // Step 3: Update the part's inventory in SharePoint with optimistic locking
       const updateData = {
         InventoryOnHand: newInventory
       };
 
-      await graphClient
-        .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${currentPart.id}`)
-        .patch({
-          fields: updateData
-        });
+      try {
+        const updateResponse = await graphClient
+          .api(`/sites/${this.siteId}/lists/${SHAREPOINT_CONFIG.lists.parts}/items/${currentPart.sharepointId}`)
+          .header('If-Match', currentPart.eTag) // SharePoint optimistic locking
+          .patch({
+            fields: updateData
+          });
 
-      console.log(`✅ Inventory updated successfully for ${partId}: ${currentInventory} → ${newInventory}`);
+        console.log(`✅ Inventory updated successfully for ${partId}: ${currentInventory} → ${newInventory}`);
 
-      // Clear cache to ensure fresh data on next load
-      this.clearCache();
+        // Clear cache to ensure fresh data on next load
+        this.clearCache();
 
-      return {
-        partId,
-        previousInventory: currentInventory,
-        newInventory,
-        changeAmount: newInventory - currentInventory
-      };
+        return {
+          partId,
+          previousInventory: currentInventory,
+          newInventory,
+          changeAmount: newInventory - currentInventory,
+          movementType,
+          eTag: currentPart.eTag
+        };
+
+      } catch (updateError) {
+        // Handle concurrency conflicts (HTTP 412 Precondition Failed)
+        if (updateError.code === 'preconditionFailed' || updateError.status === 412) {
+          if (retryCount < MAX_RETRIES) {
+            console.warn(`🔄 Concurrency conflict detected for ${partId}. Retrying... (${retryCount + 1}/${MAX_RETRIES})`);
+            await new Promise(resolve => setTimeout(resolve, 1000 + (retryCount * 500))); // Exponential backoff
+            return this.updatePartInventory(accessToken, partId, movementType, quantity, retryCount + 1);
+          } else {
+            throw new Error(`Concurrency conflict: Part ${partId} was modified by another user. Maximum retries exceeded. Please refresh and try again.`);
+          }
+        }
+        throw updateError; // Re-throw other errors
+      }
 
     } catch (error) {
       console.error(`❌ Failed to update inventory for part ${partId}:`, error);
