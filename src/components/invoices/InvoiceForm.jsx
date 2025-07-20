@@ -158,37 +158,37 @@ const InvoiceForm = () => {
     if (!canCreate) return []
 
     const stockErrors = [];
-    let totalStockValue = 0;
     
-    for (const item of lineItems) {
-      const part = parts.find(p => p.partId === item.partId);
+    // FIXED: Aggregate quantities by partId first
+    const partQuantityMap = new Map();
+    
+    lineItems.forEach(item => {
+      if (!item.partId) return; // Skip incomplete line items
+      
+      const currentTotal = partQuantityMap.get(item.partId) || 0;
+      partQuantityMap.set(item.partId, currentTotal + (parseFloat(item.quantity) || 0));
+    });
+    
+    // Now validate aggregated quantities against available inventory
+    for (const [partId, totalQuantityNeeded] of partQuantityMap) {
+      const part = parts.find(p => p.partId === partId);
       if (!part) {
-        stockErrors.push(`❌ Part ${item.partId} not found in system`);
+        stockErrors.push(`❌ Part ${partId} not found in system`);
         continue;
       }
       
-      // ENHANCED: More detailed validation with business context
-      if (part.inventoryOnHand < item.quantity) {
-        const shortage = item.quantity - part.inventoryOnHand;
+      // ONLY show errors for insufficient stock - removed depletion warnings
+      if (part.inventoryOnHand < totalQuantityNeeded) {
+        const shortage = totalQuantityNeeded - part.inventoryOnHand;
+        const lineItemsCount = lineItems.filter(item => item.partId === partId).length;
+        
         stockErrors.push(
-          `⚠️ ${item.partId}: Insufficient stock (${shortage} units short) - Available: ${part.inventoryOnHand}, Required: ${item.quantity}`
-        );
-      } else if (part.inventoryOnHand === item.quantity) {
-        // Warn about complete depletion
-        stockErrors.push(
-          `📊 ${item.partId}: This sale will completely deplete inventory (${part.inventoryOnHand} → 0)`
+          `⚠️ ${partId}: Insufficient stock (${shortage} units short) - ` +
+          `Available: ${part.inventoryOnHand}, Required: ${totalQuantityNeeded} ` +
+          `${lineItemsCount > 1 ? `(across ${lineItemsCount} line items)` : ''}`
         );
       }
-      
-      // Track total value for additional validation
-      totalStockValue += (part.inventoryOnHand * (part.unitCost || 0));
     }
-    
-    // Additional business rule: Warn for high-value transactions
-    const invoiceValue = lineItems.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0);
-    // if (invoiceValue > totalStockValue * 0.1) { // More than 10% of total inventory value
-    //   stockErrors.push(`💰 High-value transaction alert: Invoice value $${invoiceValue.toFixed(2)} represents significant portion of inventory`);
-    // }
     
     return stockErrors;
   }, [lineItems, parts, canCreate]);

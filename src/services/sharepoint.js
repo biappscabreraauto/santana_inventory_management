@@ -1070,28 +1070,45 @@ class SharePointService {
       async () => {
         console.log('🔍 Starting createInvoice with data:', invoiceData);
 
-        // 1. VALIDATE: Check inventory levels for each line item FIRST
+        // 1. FIXED: Aggregate inventory validation by part ID
         if (invoiceData.lineItems && invoiceData.lineItems.length > 0) {
           console.log(`📦 Validating inventory for ${invoiceData.lineItems.length} line items`);
           
-          for (const item of invoiceData.lineItems) {
-            console.log(`🔍 Checking inventory for part: ${item.partId}`);
+          // STEP 1: Aggregate quantities by partId
+          const partQuantityMap = new Map();
+          invoiceData.lineItems.forEach(item => {
+            const currentTotal = partQuantityMap.get(item.partId) || 0;
+            partQuantityMap.set(item.partId, currentTotal + parseFloat(item.quantity || 0));
+          });
+          
+          console.log('📊 Aggregated part requirements:', Object.fromEntries(partQuantityMap));
+          
+          // STEP 2: Validate aggregated quantities against available inventory
+          for (const [partId, totalQuantityNeeded] of partQuantityMap) {
+            console.log(`🔍 Checking inventory for part: ${partId} (total needed: ${totalQuantityNeeded})`);
             
-            // Use the fixed getPartById method (with filter)
-            const part = await this.getPartById(accessToken, item.partId);
+            const part = await this.getPartById(accessToken, partId);
             if (!part) {
-              throw new Error(`Part ${item.partId} not found`);
+              throw new Error(`Part ${partId} not found`);
             }
             
-            console.log(`📊 Part ${item.partId}: Available=${part.inventoryOnHand}, Required=${item.quantity}`);
+            console.log(`📊 Part ${partId}: Available=${part.inventoryOnHand}, Total Required=${totalQuantityNeeded}`);
             
-            if (part.inventoryOnHand < item.quantity) {
+            // ONLY fail for insufficient stock - removed depletion warnings
+            if (part.inventoryOnHand < totalQuantityNeeded) {
+              const lineItemsWithThisPart = invoiceData.lineItems.filter(item => item.partId === partId);
+              const lineItemDetails = lineItemsWithThisPart.map(item => 
+                `${item.quantity} units at $${item.unitPrice || 0}`
+              ).join(', ');
+              
               throw new Error(
-                `Insufficient stock for ${item.partId}. Available: ${part.inventoryOnHand}, Required: ${item.quantity}`
+                `Insufficient stock for ${partId}. ` +
+                `Available: ${part.inventoryOnHand}, Required: ${totalQuantityNeeded} ` +
+                `(across ${lineItemsWithThisPart.length} line items: ${lineItemDetails})`
               );
             }
           }
-          console.log('✅ All inventory validations passed');
+          console.log('✅ All aggregated inventory validations passed');
         }
 
         // 2. Create the invoice record with status 'Finalized'
